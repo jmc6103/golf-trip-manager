@@ -1,0 +1,381 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum TripStatus {
+  DRAFT
+  REGISTRATION
+  TEAMS_READY
+  LIVE
+  COMPLETE
+  ARCHIVED
+}
+
+enum TripRole {
+  OWNER
+  ADMIN
+  PLAYER
+}
+
+enum RulesMode {
+  USGA
+  RELAXED
+}
+
+enum ScoreMax {
+  NONE
+  DOUBLE_BOGEY
+  TRIPLE_BOGEY
+  NET_DOUBLE_BOGEY
+}
+
+enum TeamMethod {
+  BALANCED_AUTO
+  CAPTAINS_PICK
+  MANUAL
+  RANDOM
+}
+
+enum PairingMethod {
+  RULE_BASED
+  MANUAL
+  RANDOM
+}
+
+enum TripTemplate {
+  RYDER_CUP_WEEKEND
+  SCRAMBLE_OUTING
+  STROKE_PLAY_TRIP
+  CUSTOM
+}
+
+enum RoundFormat {
+  FOUR_BALL
+  SINGLES
+  STROKE_BLIND
+  ALT_SHOT
+  SCRAMBLE
+  SHAMBLE
+  STABLEFORD
+}
+
+enum RoundStatus {
+  NOT_STARTED
+  LIVE
+  FINAL
+  RESET
+}
+
+enum TeamColor {
+  BLUE
+  RED
+  GREEN
+  GOLD
+  BLACK
+  WHITE
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  CLOSED_OUT
+  FINAL
+}
+
+enum MatchResult {
+  SIDE_ONE
+  SIDE_TWO
+  HALVED
+}
+
+enum CourseSource {
+  MANUAL
+  GOLF_COURSE_API
+  BLUEGOLF
+}
+
+model Trip {
+  id             String        @id @default(cuid())
+  slug           String        @unique
+  name           String
+  location       String?
+  startsOn       DateTime?
+  endsOn         DateTime?
+  status         TripStatus    @default(DRAFT)
+  template       TripTemplate  @default(CUSTOM)
+  maxPlayers     Int           @default(16)
+  dayCount       Int           @default(3)
+  roundCount     Int           @default(3)
+  rulesMode      RulesMode     @default(RELAXED)
+  scoreMax       ScoreMax      @default(TRIPLE_BOGEY)
+  teamMethod     TeamMethod    @default(BALANCED_AUTO)
+  pairingMethod  PairingMethod @default(RULE_BASED)
+  inviteCode     String        @unique @default(cuid())
+  adminTokenHash String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  adminIdentities AdminIdentity[]
+  players         Player[]
+  teams           Team[]
+  courses         Course[]
+  rounds          Round[]
+  matches         Match[]
+  scores          HoleScore[]
+  submissions     RoundSubmission[]
+  invitations     Invitation[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AdminIdentity {
+  id        String   @id @default(cuid())
+  tripId    String
+  name      String
+  email     String
+  role      TripRole @default(OWNER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, email])
+  @@index([email])
+}
+
+model Invitation {
+  id        String    @id @default(cuid())
+  tripId    String
+  code      String    @unique @default(cuid())
+  role      TripRole  @default(PLAYER)
+  expiresAt DateTime?
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, role])
+}
+
+model Player {
+  id           String   @id @default(cuid())
+  tripId       String
+  name         String
+  email        String?
+  handicap     Float?
+  accessToken  String   @unique @default(cuid())
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  trip             Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  teamMemberships  TeamPlayer[]
+  matchAppearances MatchPlayer[]
+  scores           HoleScore[]
+  roundSubmissions RoundSubmission[]
+
+  @@unique([tripId, name])
+  @@index([tripId])
+  @@index([email])
+}
+
+model Team {
+  id        String     @id @default(cuid())
+  tripId    String
+  name      String
+  color     TeamColor?
+  seed      Int?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  trip    Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  players TeamPlayer[]
+  sides   MatchSide[]
+
+  @@unique([tripId, name])
+  @@index([tripId])
+}
+
+model TeamPlayer {
+  id        String   @id @default(cuid())
+  teamId    String
+  playerId  String
+  isCaptain Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, playerId])
+  @@index([playerId])
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  tripId      String
+  dayNumber   Int
+  name        String
+  dateLabel   String?
+  teeName     String?
+  rating      Float?
+  slope       Int?
+  totalPar    Int?
+  source      CourseSource @default(MANUAL)
+  sourceId    String?
+  blueGolfUrl String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  trip   Trip    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  holes  Hole[]
+  rounds Round[]
+
+  @@unique([tripId, dayNumber])
+  @@index([tripId])
+}
+
+model Hole {
+  id          String @id @default(cuid())
+  courseId    String
+  holeNumber  Int
+  par         Int
+  strokeIndex Int
+  yardage     Int?
+
+  course Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  scores HoleScore[]
+
+  @@unique([courseId, holeNumber])
+  @@index([courseId, strokeIndex])
+}
+
+model Round {
+  id                String      @id @default(cuid())
+  tripId            String
+  courseId          String?
+  dayNumber         Int
+  roundNumber       Int
+  name              String
+  format            RoundFormat
+  status            RoundStatus @default(NOT_STARTED)
+  handicapAllowance Int         @default(100)
+  pointsAvailable   Float       @default(1)
+  startsAt          DateTime?
+  startedAt         DateTime?
+  finalizedAt       DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  trip        Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  course      Course?           @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  matches     Match[]
+  scores      HoleScore[]
+  submissions RoundSubmission[]
+
+  @@unique([tripId, roundNumber])
+  @@index([tripId, dayNumber])
+  @@index([status])
+}
+
+model Match {
+  id          String       @id @default(cuid())
+  tripId      String
+  roundId     String
+  matchNumber Int
+  status      MatchStatus  @default(SCHEDULED)
+  result      MatchResult?
+  winningSide Int?
+  holesUp     Int?
+  holesLeft   Int?
+  closedOutAt DateTime?
+  finalizedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  trip   Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  round  Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  sides  MatchSide[]
+  scores HoleScore[]
+
+  @@unique([roundId, matchNumber])
+  @@index([tripId])
+  @@index([roundId, status])
+}
+
+model MatchSide {
+  id        String  @id @default(cuid())
+  matchId   String
+  sideIndex Int
+  teamId    String?
+  label     String?
+  points    Float   @default(0)
+
+  match   Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team    Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  players MatchPlayer[]
+
+  @@unique([matchId, sideIndex])
+  @@index([teamId])
+}
+
+model MatchPlayer {
+  id          String @id @default(cuid())
+  matchSideId String
+  playerId    String
+  position    Int    @default(1)
+
+  side   MatchSide @relation(fields: [matchSideId], references: [id], onDelete: Cascade)
+  player Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchSideId, playerId])
+  @@index([playerId])
+}
+
+model HoleScore {
+  id            String   @id @default(cuid())
+  tripId        String
+  roundId       String
+  matchId       String?
+  holeId        String?
+  playerId      String
+  holeNumber    Int
+  gross         Int
+  net           Int?
+  strokesGiven  Int      @default(0)
+  stablefordPts Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  round  Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  match  Match? @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  hole   Hole?  @relation(fields: [holeId], references: [id], onDelete: SetNull)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, playerId, holeNumber])
+  @@index([tripId])
+  @@index([matchId, holeNumber])
+}
+
+model RoundSubmission {
+  id          String   @id @default(cuid())
+  tripId      String
+  roundId     String
+  playerId    String
+  grossTotal  Int?
+  netTotal    Int?
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  round  Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, playerId])
+  @@index([tripId])
+}
