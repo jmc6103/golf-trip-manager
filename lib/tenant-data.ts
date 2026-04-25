@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { createHash, randomBytes } from 'node:crypto'
 import type { CourseSource, RoundFormat, Trip, TripRole } from '@prisma/client'
 import { getDb } from './db'
+import { buildDefaultHoles } from './trip-ops'
 import { formatOptions } from './trip-data'
 import type { TripSetupDraft, TripSummary } from './types'
 
@@ -16,6 +17,8 @@ export function hashToken(token: string) {
 }
 
 export async function listTripSummaries(): Promise<TripSummary[]> {
+  if (!process.env.DATABASE_URL) return []
+
   const db = getDb()
   const trips = await db.trip.findMany({
     orderBy: { createdAt: 'desc' },
@@ -177,6 +180,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
           teeName: course.teeName || null,
           rating: parseNullableFloat(course.rating),
           slope: parseNullableInt(course.slope),
+          totalPar: buildDefaultHoles().reduce((sum, hole) => sum + hole.par, 0),
           source: normalizeCourseSource(course.source),
           sourceId: course.sourceId || null,
           blueGolfUrl: course.blueGolfUrl || null,
@@ -195,6 +199,15 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
   )
 
   const courses = await db.course.findMany({ where: { tripId: trip.id }, orderBy: { dayNumber: 'asc' } })
+  const defaultHoles = buildDefaultHoles()
+  await Promise.all(
+    courses.map(async (course) => {
+      const count = await db.hole.count({ where: { courseId: course.id } })
+      if (count) return
+      await db.hole.createMany({ data: defaultHoles.map((hole) => ({ ...hole, courseId: course.id })) })
+    })
+  )
+
   await Promise.all(
     Array.from({ length: setup.roundCount }, (_, index) => {
       const roundNumber = index + 1

@@ -36,16 +36,22 @@ export function getTripLinks(slug: string): TripLink[] {
       description: 'Configure teams, rounds, pairings, scoring rules, and reset tools.',
     },
     {
-      label: 'Join',
-      href: `/t/${slug}/join`,
+      label: 'Lobby',
+      href: `/t/${slug}/lobby`,
       role: 'PLAYER',
-      description: 'Player invite link for registration with minimal friction.',
+      description: 'Trip waiting room, roster, team assignments, and live navigation.',
     },
     {
       label: 'Player',
       href: `/t/${slug}/player`,
       role: 'PLAYER',
       description: 'Personal scoring card and live match state.',
+    },
+    {
+      label: 'Format',
+      href: `/t/${slug}/format`,
+      role: 'PLAYER',
+      description: 'Trip-specific game explanations and scoring rules.',
     },
   ]
 }

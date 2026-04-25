@@ -1,6 +1,7 @@
 import { AdminConfigurator } from './admin-configurator'
+import { AdminControlRoom } from './admin-control-room'
 import { createDefaultSetup } from '@/lib/trip-data'
-import { getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
+import { getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
 
 export default async function AdminPage({
   params,
@@ -12,6 +13,7 @@ export default async function AdminPage({
   const { tripSlug } = await params
   const query = await searchParams
   const trip = await getTripSummary(tripSlug)
+  const detail = trip ? await getTripDetail(tripSlug) : null
   const fallback = createDefaultSetup(tripSlug, query.ownerName ?? '', query.tripName ?? '')
   fallback.ownerEmail = query.ownerEmail ?? ''
   fallback.adminToken = query.adminToken ?? fallback.adminToken
@@ -30,6 +32,7 @@ export default async function AdminPage({
           maxPlayers: fallback.playerCount,
           formats: ['Setup underway'],
         }} initialSetup={fallback} canAdmin={canAdmin} />
+        {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} /> : null}
       </div>
     </main>
   )
