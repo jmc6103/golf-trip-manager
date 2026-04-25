@@ -6,6 +6,10 @@ import { createAccessToken, hashToken, hasAdminAccess, setAdminCookie, setPlayer
 import type { TripSetupDraft } from '@/lib/types'
 
 export async function saveTripSetup(setup: TripSetupDraft) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not configured for this deployment.')
+  }
+
   const db = getDb()
   const existing = await db.trip.findUnique({ where: { slug: setup.slug }, select: { adminTokenHash: true } })
   if (existing?.adminTokenHash) {
@@ -20,6 +24,10 @@ export async function saveTripSetup(setup: TripSetupDraft) {
 }
 
 export async function joinTrip(formData: FormData) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not configured for this deployment.')
+  }
+
   const slug = String(formData.get('slug') ?? '')
   const name = String(formData.get('name') ?? '').trim()
   const email = String(formData.get('email') ?? '').trim().toLowerCase()

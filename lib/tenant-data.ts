@@ -32,6 +32,8 @@ export async function listTripSummaries(): Promise<TripSummary[]> {
 }
 
 export async function getTripSummary(slug: string): Promise<TripSummary | null> {
+  if (!process.env.DATABASE_URL) return null
+
   const db = getDb()
   const trip = await db.trip.findUnique({
     where: { slug },
@@ -45,6 +47,8 @@ export async function getTripSummary(slug: string): Promise<TripSummary | null> 
 }
 
 export async function getTripDetail(slug: string) {
+  if (!process.env.DATABASE_URL) return null
+
   const db = getDb()
   return db.trip.findUnique({
     where: { slug },
@@ -77,6 +81,8 @@ export async function getTripDetail(slug: string) {
 }
 
 export async function getPlayerFromCookie(slug: string) {
+  if (!process.env.DATABASE_URL) return null
+
   const cookieStore = await cookies()
   const token = cookieStore.get(playerCookieName(slug))?.value
   if (!token) return null
@@ -89,6 +95,8 @@ export async function getPlayerFromCookie(slug: string) {
 }
 
 export async function hasAdminAccess(slug: string, queryToken?: string) {
+  if (!process.env.DATABASE_URL) return false
+
   const db = getDb()
   const trip = await db.trip.findUnique({ where: { slug }, select: { adminTokenHash: true } })
   if (!trip?.adminTokenHash) return false
@@ -121,6 +129,10 @@ export async function setPlayerCookie(slug: string, token: string) {
 }
 
 export async function upsertTripFromSetup(setup: TripSetupDraft) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not configured for this deployment.')
+  }
+
   const db = getDb()
   const adminToken = setup.adminToken || createAccessToken()
   const formats = setup.formats.length ? setup.formats : ['STROKE_BLIND']
