@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { CreateTripForm } from './create-trip-form'
-import { trips } from '@/lib/trip-data'
+import { listTripSummaries } from '@/lib/tenant-data'
 
-export default function HomePage() {
+export default async function HomePage() {
+  const trips = await listTripSummaries()
+
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">
       <div className="mx-auto max-w-md space-y-4">
@@ -26,18 +28,20 @@ export default function HomePage() {
 
         <CreateTripForm />
 
-        <section className="space-y-3">
-          <h2 className="px-1 text-sm font-black uppercase tracking-wide text-slate-500">Example Trips</h2>
-          {trips.map((trip) => (
-            <Link key={trip.slug} href={`/t/${trip.slug}`} className="block rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">{trip.location}</p>
-              <h3 className="mt-1 text-xl font-black">{trip.name}</h3>
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                {trip.dates} - {trip.playerCount}/{trip.maxPlayers} players
-              </p>
-            </Link>
-          ))}
-        </section>
+        {trips.length ? (
+          <section className="space-y-3">
+            <h2 className="px-1 text-sm font-black uppercase tracking-wide text-slate-500">Your Trips</h2>
+            {trips.map((trip) => (
+              <Link key={trip.slug} href={`/t/${trip.slug}`} className="block rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">{trip.location}</p>
+                <h3 className="mt-1 text-xl font-black">{trip.name}</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {trip.dates} - {trip.playerCount}/{trip.maxPlayers} players
+                </p>
+              </Link>
+            ))}
+          </section>
+        ) : null}
       </div>
     </main>
   )

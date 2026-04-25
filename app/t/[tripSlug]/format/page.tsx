@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
-import { getTrip } from '@/lib/trip-data'
+import { formatLabel, getTripDetail } from '@/lib/tenant-data'
 
 export default async function FormatPage({ params }: { params: Promise<{ tripSlug: string }> }) {
   const { tripSlug } = await params
-  const trip = getTrip(tripSlug)
+  const trip = await getTripDetail(tripSlug)
   if (!trip) notFound()
 
   return (
@@ -14,10 +14,13 @@ export default async function FormatPage({ params }: { params: Promise<{ tripSlu
           <h1 className="mt-2 text-3xl font-black">{trip.name}</h1>
           <p className="mt-2 text-sm font-semibold text-slate-300">Trip-specific scoring rules and casual local rules live here.</p>
         </section>
-        {trip.formats.map((format) => (
-          <section key={format} className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-xl font-black">{format}</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">Allowance, max score, match points, and local rules would be configurable per trip.</p>
+        {trip.rounds.map((round) => (
+          <section key={round.id} className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">Round {round.roundNumber}</p>
+            <h2 className="mt-1 text-xl font-black">{formatLabel(round.format)}</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              {round.handicapAllowance}% handicap allowance - {round.pointsAvailable} point{round.pointsAvailable === 1 ? '' : 's'} available - {trip.scoreMax.replace(/_/g, ' ').toLowerCase()}.
+            </p>
           </section>
         ))}
       </div>

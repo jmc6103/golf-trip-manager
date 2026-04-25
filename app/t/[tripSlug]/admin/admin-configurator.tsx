@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { saveTripSetup } from '@/app/actions'
 import { createCoursesForDays, createDefaultSetup, formatOptions, tripTemplates } from '@/lib/trip-data'
 import type { CourseDraft, PairingMethod, RulesMode, ScoreMax, TeamMethod, TripSetupDraft, TripSummary, TripTemplateId } from '@/lib/types'
 
@@ -42,10 +44,13 @@ const pairingMethods: Array<[PairingMethod, string]> = [
   ['RANDOM', 'Random pairings'],
 ]
 
-export function AdminConfigurator({ trip }: { trip: TripSummary }) {
+export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean }) {
   const storageKey = `trip-setup:${trip.slug}`
-  const [setup, setSetup] = useState<TripSetupDraft>(() => createDefaultSetup(trip.slug, '', trip.name))
+  const router = useRouter()
+  const [setup, setSetup] = useState<TripSetupDraft>(() => initialSetup ?? createDefaultSetup(trip.slug, '', trip.name))
   const [stepIndex, setStepIndex] = useState(0)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState('')
   const currentStep = steps[stepIndex]
 
   useEffect(() => {
@@ -56,10 +61,10 @@ export function AdminConfigurator({ trip }: { trip: TripSummary }) {
       return
     }
 
-    const next = createDefaultSetup(trip.slug, params.get('ownerName') ?? '', params.get('tripName') ?? trip.name)
+    const next = initialSetup ?? createDefaultSetup(trip.slug, params.get('ownerName') ?? '', params.get('tripName') ?? trip.name)
     next.ownerEmail = params.get('ownerEmail') ?? ''
     setSetup(next)
-  }, [storageKey, trip.name, trip.slug])
+  }, [initialSetup, storageKey, trip.name, trip.slug])
 
   const selectedFormatNames = useMemo(
     () => setup.formats.map((id) => formatOptions.find((format) => format.id === id)?.name ?? id),
@@ -102,7 +107,15 @@ export function AdminConfigurator({ trip }: { trip: TripSummary }) {
 
   function completeSetup() {
     window.localStorage.setItem(storageKey, JSON.stringify(setup))
-    setStepIndex(steps.findIndex((step) => step.id === 'complete'))
+    setError('')
+    startTransition(async () => {
+      try {
+        const result = await saveTripSetup(setup)
+        router.push(result.adminUrl)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save trip setup.')
+      }
+    })
   }
 
   function goNext() {
@@ -124,6 +137,18 @@ export function AdminConfigurator({ trip }: { trip: TripSummary }) {
         <h1 className="mt-2 text-3xl font-black">{setup.tripName}</h1>
         <p className="mt-2 text-sm font-semibold text-slate-300">/t/{trip.slug} - owner {setup.ownerName || 'pending'}</p>
       </section>
+
+      {!canAdmin ? (
+        <section className="rounded-[24px] bg-amber-50 p-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">
+          This trip already exists. Use the private admin link to save changes.
+        </section>
+      ) : null}
+
+      {error ? (
+        <section className="rounded-[24px] bg-rose-50 p-4 text-sm font-bold text-rose-800 ring-1 ring-rose-200">
+          {error}
+        </section>
+      ) : null}
 
       <section className="rounded-[24px] bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-center gap-2 overflow-x-auto">
@@ -157,7 +182,7 @@ export function AdminConfigurator({ trip }: { trip: TripSummary }) {
             Back
           </button>
           <button onClick={currentStep.id === 'review' ? completeSetup : goNext} className="rounded-2xl bg-slate-950 px-4 py-4 font-black text-white">
-            {currentStep.id === 'review' ? 'Complete Setup' : currentStep.id === 'courses' ? 'Review Setup' : 'Next'}
+            {isPending ? 'Saving...' : currentStep.id === 'review' ? 'Complete Setup' : currentStep.id === 'courses' ? 'Review Setup' : 'Next'}
           </button>
         </section>
       ) : null}

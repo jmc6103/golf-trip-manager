@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { getTrip, getTripLinks } from '@/lib/trip-data'
+import { getTripLinks } from '@/lib/trip-data'
+import { getTripSummary } from '@/lib/tenant-data'
 
 export default async function TripHomePage({ params }: { params: Promise<{ tripSlug: string }> }) {
   const { tripSlug } = await params
-  const trip = getTrip(tripSlug)
+  const trip = await getTripSummary(tripSlug)
   if (!trip) notFound()
 
   return (

@@ -1,6 +1,6 @@
 export type TripRole = 'OWNER' | 'ADMIN' | 'PLAYER' | 'SPECTATOR'
 
-export type TripStatus = 'DRAFT' | 'REGISTRATION' | 'TEAMS_READY' | 'LIVE' | 'COMPLETE'
+export type TripStatus = 'DRAFT' | 'REGISTRATION' | 'TEAMS_READY' | 'LIVE' | 'COMPLETE' | 'ARCHIVED'
 
 export type TripSummary = {
   slug: string
