@@ -45,10 +45,23 @@ const pairingMethods: Array<[PairingMethod, string]> = [
 
 type SetupResult = { adminUrl: string; inviteUrl: string; adminToken: string }
 
-export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip = false }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean; isExistingTrip?: boolean }) {
+export function AdminConfigurator({
+  trip,
+  initialSetup,
+  canAdmin,
+  isExistingTrip = false,
+  adminToken = '',
+}: {
+  trip: TripSummary
+  initialSetup: TripSetupDraft
+  canAdmin: boolean
+  isExistingTrip?: boolean
+  adminToken?: string
+}) {
   const storageKey = `trip-setup:${trip.slug}`
   const flowSteps = isExistingTrip ? steps.filter((step) => step.id !== 'complete') : steps
   const [setup, setSetup] = useState<TripSetupDraft>(() => normalizeSetup(initialSetup ?? createDefaultSetup(trip.slug, '', trip.name)))
+  const [privateAdminToken, setPrivateAdminToken] = useState(adminToken || initialSetup?.adminToken || '')
   const [stepIndex, setStepIndex] = useState(0)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
@@ -58,6 +71,8 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const queryAdminToken = params.get('adminToken') ?? ''
+    if (queryAdminToken) setPrivateAdminToken(queryAdminToken)
     if (params.has('adminToken')) {
       params.delete('adminToken')
       const nextQuery = params.toString()
@@ -70,6 +85,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip
     }
 
     const next = initialSetup ?? createDefaultSetup(trip.slug, params.get('ownerName') ?? '', params.get('tripName') ?? trip.name)
+    if (queryAdminToken && !next.adminToken) next.adminToken = queryAdminToken
     next.ownerEmail = params.get('ownerEmail') ?? ''
     setSetup(normalizeSetup(next))
   }, [initialSetup, isExistingTrip, storageKey, trip.name, trip.slug])
@@ -118,7 +134,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip
     setSuccess('')
     startTransition(async () => {
       try {
-        const result = await saveTripSetup(setup)
+        const result = await saveTripSetup({ ...setup, adminToken: setup.adminToken || privateAdminToken })
         if ('error' in result && result.error) {
           setError(result.error)
           return

@@ -37,7 +37,7 @@ export default async function AdminPage({
           playerCount: 0,
           maxPlayers: fallback.playerCount,
           formats: ['Setup underway'],
-        }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} />
+        }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} adminToken={tokenCanAdmin ? query.adminToken ?? '' : ''} />
         {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} /> : null}
       </div>
     </main>
