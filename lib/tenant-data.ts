@@ -128,6 +128,11 @@ export async function setPlayerCookie(slug: string, token: string) {
   })
 }
 
+export async function clearPlayerCookie(slug: string) {
+  const cookieStore = await cookies()
+  cookieStore.delete(playerCookieName(slug))
+}
+
 export async function upsertTripFromSetup(setup: TripSetupDraft) {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not configured for this deployment.')

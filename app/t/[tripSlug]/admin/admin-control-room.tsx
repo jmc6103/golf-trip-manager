@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 
 type AdminTrip = {
@@ -23,6 +24,7 @@ type AdminTrip = {
 }
 
 export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin: boolean }) {
+  const router = useRouter()
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
 
@@ -35,8 +37,13 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
         body: JSON.stringify(body),
       })
       const json = await res.json().catch(() => null)
-      setMessage(res.ok ? 'Saved.' : json?.error ?? 'Update failed.')
-      if (res.ok) window.location.reload()
+      if (res.ok) {
+        setMessage('Saved.')
+        setTimeout(() => setMessage(''), 3000)
+        router.refresh()
+      } else {
+        setMessage(json?.error ?? 'Update failed.')
+      }
     })
   }
 
@@ -94,7 +101,7 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
         <div className="mt-3 space-y-3">
           {trip.rounds.map((round) => (
             <div key={round.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-              <p className="font-black">Round {round.roundNumber} - {round.format.replace(/_/g, ' ')}</p>
+              <p className="font-black">Round {round.roundNumber} — {round.format.replace(/_/g, ' ')}</p>
               <p className="text-sm font-semibold text-slate-500">{round.status.replace(/_/g, ' ')}</p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <button onClick={() => mutate({ action: 'start-round', roundId: round.id })} className="rounded-xl bg-emerald-600 px-3 py-3 text-sm font-black text-white">Start</button>
@@ -111,10 +118,16 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
         <div className="mt-3 space-y-3">
           {trip.rounds.flatMap((round) => round.matches.map((match) => (
             <div key={match.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-              <p className="text-sm font-black">Round {round.roundNumber} - Match {match.matchNumber}</p>
+              <p className="text-sm font-black">Round {round.roundNumber} — Match {match.matchNumber}</p>
               <div className="mt-2 space-y-2">
                 {match.sides.map((side) => (
-                  <ManualSide key={side.id} side={side} players={trip.players} onSave={(playerIds) => mutate({ type: 'match-side', sideId: side.id, playerIds }, 'PATCH')} />
+                  <ManualSide
+                    key={side.id}
+                    side={side}
+                    players={trip.players}
+                    format={round.format}
+                    onSave={(playerIds) => mutate({ type: 'match-side', sideId: side.id, playerIds }, 'PATCH')}
+                  />
                 ))}
               </div>
             </div>
@@ -131,14 +144,17 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
 function ManualSide({
   side,
   players,
+  format,
   onSave,
 }: {
   side: AdminTrip['rounds'][number]['matches'][number]['sides'][number]
   players: AdminTrip['players']
+  format: string
   onSave: (playerIds: string[]) => void
 }) {
   const [value, setValue] = useState(side.players.map((entry) => entry.playerId).join(','))
   const selected = value.split(',').filter(Boolean)
+  const slotCount = format === 'SINGLES' ? 1 : (format === 'FOUR_BALL' || format === 'ALT_SHOT') ? 2 : 4
 
   function setAt(index: number, playerId: string) {
     const next = [...selected]
@@ -150,7 +166,7 @@ function ManualSide({
     <div className="rounded-xl bg-white p-2 ring-1 ring-slate-200">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">{side.team?.name ?? side.label ?? 'Side'}</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        {[0, 1, 2, 3].map((index) => (
+        {Array.from({ length: slotCount }, (_, index) => (
           <select key={index} value={selected[index] ?? ''} onChange={(event) => setAt(index, event.target.value)} className="min-w-0 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold">
             <option value="">TBD</option>
             {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}

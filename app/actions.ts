@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { getDb } from '@/lib/db'
-import { createAccessToken, hashToken, hasAdminAccess, setAdminCookie, setPlayerCookie, upsertTripFromSetup } from '@/lib/tenant-data'
+import { clearPlayerCookie, createAccessToken, hashToken, hasAdminAccess, setAdminCookie, setPlayerCookie, upsertTripFromSetup } from '@/lib/tenant-data'
 import type { TripSetupDraft } from '@/lib/types'
 
 export async function saveTripSetup(setup: TripSetupDraft) {
@@ -69,4 +69,11 @@ export async function joinTrip(formData: FormData) {
 
   await setPlayerCookie(slug, player.accessToken)
   redirect(`/t/${slug}/player`)
+}
+
+export async function leaveTrip(formData: FormData) {
+  const slug = String(formData.get('slug') ?? '')
+  if (!slug) return
+  await clearPlayerCookie(slug)
+  redirect(`/t/${slug}`)
 }

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { maxScoreForHole } from '@/lib/scoring'
+import { leaveTrip } from '@/app/actions'
 
 type PlayerCard = {
   trip: { slug: string; name: string; scoreMax: string }
@@ -112,6 +113,10 @@ export function PlayerScorecard({ slug }: { slug: string }) {
               <p className="mt-1 text-xs font-bold uppercase tracking-wide text-emerald-200">
                 {data.player.teamName ?? 'No team'} - {data.player.name}
               </p>
+              <form action={leaveTrip} className="mt-2">
+                <input type="hidden" name="slug" value={slug} />
+                <button type="submit" className="text-xs font-bold text-slate-400 underline underline-offset-2">Not you?</button>
+              </form>
             </div>
             <div className="rounded-2xl bg-white/10 px-3 py-2 text-right">
               <p className="text-xs text-slate-300">Gross</p>

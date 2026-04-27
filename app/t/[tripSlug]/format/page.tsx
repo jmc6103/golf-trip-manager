@@ -83,6 +83,14 @@ function formatDetails(format: string) {
       'Scores can be shown by team name while still accepting player-entered hole scores.',
     ]
   }
+  if (format === 'ALT_SHOT') {
+    return [
+      'Two-player teams alternate hitting the same ball throughout the hole.',
+      'One player tees off on odd-numbered holes, the other on even-numbered holes.',
+      'Strokes are shared — the team is treated as a single scoring unit.',
+      'The lower net team score wins the hole. A halved match earns 0.5 points per side.',
+    ]
+  }
   if (format === 'STABLEFORD') {
     return [
       'Players earn points per hole instead of counting only total strokes.',
