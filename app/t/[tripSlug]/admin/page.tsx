@@ -1,7 +1,8 @@
 import { AdminConfigurator } from './admin-configurator'
 import { AdminControlRoom } from './admin-control-room'
+import { redirect } from 'next/navigation'
 import { createDefaultSetup } from '@/lib/trip-data'
-import { getTripDetail, getTripSummary, hasAdminAccess, setAdminCookie } from '@/lib/tenant-data'
+import { getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
 import type { CourseDraft, TripSetupDraft } from '@/lib/types'
 
 export default async function AdminPage({
@@ -14,16 +15,17 @@ export default async function AdminPage({
   const { tripSlug } = await params
   const query = await searchParams
 
+  if (query.adminToken) {
+    redirect(`/t/${tripSlug}/admin/access?adminToken=${encodeURIComponent(query.adminToken)}`)
+  }
+
   const trip = await getTripSummary(tripSlug)
   const detail = trip ? await getTripDetail(tripSlug) : null
-  const tokenCanAdmin = query.adminToken ? await hasAdminAccess(tripSlug, query.adminToken) : false
-  if (tokenCanAdmin && query.adminToken) await setAdminCookie(tripSlug, query.adminToken)
 
   const fallback = createDefaultSetup(tripSlug, query.ownerName ?? '', query.tripName ?? '')
   fallback.ownerEmail = query.ownerEmail ?? ''
   const initialSetup = detail ? setupFromDetail(detail) : fallback
-  if (tokenCanAdmin && query.adminToken) initialSetup.adminToken = query.adminToken
-  const canAdmin = trip ? tokenCanAdmin || await hasAdminAccess(tripSlug) : true
+  const canAdmin = trip ? await hasAdminAccess(tripSlug) : true
 
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">
@@ -37,7 +39,7 @@ export default async function AdminPage({
           playerCount: 0,
           maxPlayers: fallback.playerCount,
           formats: ['Setup underway'],
-        }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} adminToken={tokenCanAdmin ? query.adminToken ?? '' : ''} />
+        }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} />
         {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} /> : null}
       </div>
     </main>
