@@ -6,9 +6,12 @@ import { useState, useTransition } from 'react'
 type AdminTrip = {
   slug: string
   inviteCode: string
+  status: string
+  maxPlayers: number
   teamMethod: string
   pairingMethod: string
   players: Array<{ id: string; name: string; handicap: number | null }>
+  courses: Array<{ id: string; name: string; dayNumber: number }>
   teams: Array<{ id: string; name: string; players: Array<{ playerId: string; player: { id: string; name: string; handicap: number | null } }> }>
   rounds: Array<{
     id: string
@@ -27,6 +30,7 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
   const router = useRouter()
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
+  const readiness = getReadiness(trip)
 
   async function mutate(body: unknown, method = 'POST') {
     setMessage('')
@@ -65,6 +69,30 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
           Generate teams, manage manual assignments, create matches, and control live scoring.
         </p>
         {message ? <p className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
+        <div className="mt-4 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Next Action</p>
+              <p className="mt-1 font-black text-slate-950">{readiness.nextAction}</p>
+            </div>
+            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${readiness.ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+              {readiness.ready ? 'Ready' : 'Needs Work'}
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <ReadinessStat label="Players" value={`${trip.players.length}/${trip.maxPlayers}`} ok={trip.players.length >= 2} />
+            <ReadinessStat label="Teams" value={trip.teams.length ? String(trip.teams.length) : 'None'} ok={trip.teams.length > 0} />
+            <ReadinessStat label="Matches" value={String(readiness.matchCount)} ok={readiness.matchCount > 0} />
+            <ReadinessStat label="Live Round" value={readiness.liveRoundLabel} ok={Boolean(readiness.liveRoundLabel)} />
+          </div>
+          {readiness.issues.length ? (
+            <div className="mt-3 space-y-2">
+              {readiness.issues.map((issue) => (
+                <p key={issue} className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-600 ring-1 ring-slate-200">{issue}</p>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button onClick={() => mutate({ action: 'generate-teams' })} disabled={isPending} className="rounded-2xl bg-slate-950 px-4 py-4 font-black text-white disabled:opacity-60">Generate Teams</button>
           <button onClick={() => mutate({ action: 'generate-matches' })} disabled={isPending} className="rounded-2xl bg-indigo-600 px-4 py-4 font-black text-white disabled:opacity-60">Generate Matches</button>
@@ -138,6 +166,43 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
         </div>
       </section>
     </section>
+  )
+}
+
+function getReadiness(trip: AdminTrip) {
+  const matchCount = trip.rounds.reduce((sum, round) => sum + round.matches.length, 0)
+  const liveRound = trip.rounds.find((round) => round.status === 'LIVE')
+  const issues: string[] = []
+
+  if (trip.players.length < 2) issues.push('Invite at least two players.')
+  if (trip.players.length < trip.maxPlayers) issues.push(`${trip.maxPlayers - trip.players.length} invite spot${trip.maxPlayers - trip.players.length === 1 ? '' : 's'} still open.`)
+  if (!trip.courses.length) issues.push('Add at least one course before play starts.')
+  if (!trip.teams.length) issues.push('Generate teams when the roster is close to final.')
+  if (trip.teams.length && !matchCount) issues.push('Generate matches before starting a round.')
+  if (matchCount && !liveRound) issues.push('Start a round when players are ready to score.')
+
+  const nextAction =
+    trip.players.length < 2 ? 'Share the invite link' :
+    !trip.teams.length ? 'Generate teams' :
+    !matchCount ? 'Generate matches' :
+    !liveRound ? 'Start the first round' :
+    `Monitor Round ${liveRound.roundNumber}`
+
+  return {
+    ready: trip.players.length >= 2 && trip.courses.length > 0 && trip.teams.length > 0 && matchCount > 0,
+    nextAction,
+    issues,
+    matchCount,
+    liveRoundLabel: liveRound ? `Round ${liveRound.roundNumber}` : '',
+  }
+}
+
+function ReadinessStat({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+  return (
+    <div className={`rounded-xl px-3 py-2 ring-1 ${ok ? 'bg-emerald-50 text-emerald-900 ring-emerald-100' : 'bg-white text-slate-700 ring-slate-200'}`}>
+      <p className="text-xs font-black uppercase tracking-wide opacity-70">{label}</p>
+      <p className="mt-1 font-black">{value}</p>
+    </div>
   )
 }
 

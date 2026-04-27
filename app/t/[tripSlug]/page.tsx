@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getTripLinks } from '@/lib/trip-data'
-import { getTripSummary } from '@/lib/tenant-data'
+import { getTripDetail, getTripSummary } from '@/lib/tenant-data'
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
@@ -18,6 +18,8 @@ export default async function TripHomePage({ params }: { params: Promise<{ tripS
   const { tripSlug } = await params
   const trip = await getTripSummary(tripSlug)
   if (!trip) notFound()
+  const detail = await getTripDetail(tripSlug)
+  const guidance = detail ? getTripGuidance(detail) : null
 
   const links = getTripLinks(trip.slug).filter(
     (link) => link.label !== 'Player' || PLAYER_CARD_STATUSES.has(trip.status)
@@ -41,6 +43,17 @@ export default async function TripHomePage({ params }: { params: Promise<{ tripS
           <Metric label="Formats" value={String(trip.formats.length)} />
         </section>
 
+        {guidance ? (
+          <section className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <p className="text-sm font-black uppercase tracking-wide text-slate-500">Next Up</p>
+            <h2 className="mt-1 text-xl font-black">{guidance.title}</h2>
+            <p className="mt-2 text-sm font-semibold text-slate-500">{guidance.detail}</p>
+            <Link href={guidance.href} className="mt-4 block rounded-2xl bg-slate-950 px-4 py-4 text-center font-black text-white">
+              {guidance.action}
+            </Link>
+          </section>
+        ) : null}
+
         <section className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Trip Links</h2>
           <div className="mt-3 space-y-2">
@@ -60,6 +73,54 @@ export default async function TripHomePage({ params }: { params: Promise<{ tripS
       </div>
     </main>
   )
+}
+
+function getTripGuidance(trip: NonNullable<Awaited<ReturnType<typeof getTripDetail>>>) {
+  const matchCount = trip.rounds.reduce((sum, round) => sum + round.matches.length, 0)
+  const liveRound = trip.rounds.find((round) => round.status === 'LIVE')
+
+  if (trip.status === 'DRAFT' || trip.status === 'REGISTRATION') {
+    return {
+      title: trip.players.length ? 'Roster is forming' : 'Invite players',
+      detail: `${trip.players.length}/${trip.maxPlayers} players are registered. Keep the lobby open while players join.`,
+      href: `/t/${trip.slug}/lobby`,
+      action: 'Open Lobby',
+    }
+  }
+
+  if (!trip.teams.length) {
+    return {
+      title: 'Teams need to be generated',
+      detail: 'The roster is ready for the captain to create teams.',
+      href: `/t/${trip.slug}/admin`,
+      action: 'Open Admin',
+    }
+  }
+
+  if (!matchCount) {
+    return {
+      title: 'Pairings are next',
+      detail: 'Teams exist, but matches have not been generated yet.',
+      href: `/t/${trip.slug}/admin`,
+      action: 'Open Admin',
+    }
+  }
+
+  if (liveRound) {
+    return {
+      title: `Round ${liveRound.roundNumber} is live`,
+      detail: 'Players can score and everyone can follow the board.',
+      href: `/t/${trip.slug}/team`,
+      action: 'View Team Board',
+    }
+  }
+
+  return {
+    title: 'Ready for the next round',
+    detail: 'Matches are set. Start a round when players are heading out.',
+    href: `/t/${trip.slug}/admin`,
+    action: 'Open Admin',
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

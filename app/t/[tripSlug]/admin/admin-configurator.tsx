@@ -281,7 +281,7 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
   return (
     <div>
       <SectionTitle title="Courses" />
-      <p className="mt-2 text-sm font-semibold text-slate-500">Add courses manually, search GolfCourseAPI, or import basic course details from BlueGolf.</p>
+      <p className="mt-2 text-sm font-semibold text-slate-500">Add courses manually, search GolfCourseAPI, or import tee and scorecard details from BlueGolf.</p>
       <div className="mt-3 space-y-3">
         {setup.courses.map((course) => (
           <div key={course.day} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
@@ -293,6 +293,12 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
                 <input value={course.rating} onChange={(event) => updateCourse(course.day, { rating: event.target.value })} className="rounded-xl border border-slate-200 px-3 py-2 font-bold" placeholder="Rating" />
                 <input value={course.slope} onChange={(event) => updateCourse(course.day, { slope: event.target.value })} className="rounded-xl border border-slate-200 px-3 py-2 font-bold" placeholder="Slope" />
               </div>
+              {course.holes?.length === 18 ? (
+                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 ring-1 ring-emerald-100">
+                  18-hole scorecard imported - par {course.holes.reduce((sum, hole) => sum + hole.par, 0)}
+                  {course.holes.some((hole) => hole.yardage) ? ` - ${course.holes.reduce((sum, hole) => sum + (hole.yardage ?? 0), 0)} yards` : ''}
+                </p>
+              ) : null}
               <CourseTools course={course} onImport={(partial) => updateCourse(course.day, partial)} />
             </div>
           </div>
@@ -303,9 +309,28 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
 }
 
 function ReviewStep({ trip, setup, selectedFormatNames, onComplete }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void }) {
+  const checks = getSetupChecks(setup)
+  const blockers = checks.filter((check) => check.level === 'blocker')
+  const warnings = checks.filter((check) => check.level === 'warning')
+
   return (
     <div>
       <SectionTitle title="Review Setup" />
+      <div className="mt-3 space-y-2">
+        {blockers.length || warnings.length ? checks.map((check) => (
+          <div key={check.message} className={`rounded-2xl p-3 text-sm font-bold ring-1 ${
+            check.level === 'blocker'
+              ? 'bg-rose-50 text-rose-800 ring-rose-100'
+              : 'bg-amber-50 text-amber-800 ring-amber-100'
+          }`}>
+            {check.message}
+          </div>
+        )) : (
+          <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-100">
+            Setup is ready for player invites.
+          </div>
+        )}
+      </div>
       <div className="mt-3 space-y-2 text-sm font-semibold text-slate-600">
         <ReviewRow label="Trip" value={setup.tripName} />
         <ReviewRow label="Admin" value={`${setup.ownerName || 'Owner pending'} / ${setup.ownerEmail || 'Email pending'}`} />
@@ -317,9 +342,34 @@ function ReviewStep({ trip, setup, selectedFormatNames, onComplete }: { trip: Tr
         <ReviewRow label="Invite Link" value="Generated on completion" />
         <ReviewRow label="Admin Link" value={`/t/${trip.slug}/admin`} />
       </div>
-      <button onClick={onComplete} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white">Looks Good</button>
+      <button
+        onClick={onComplete}
+        disabled={Boolean(blockers.length)}
+        className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white disabled:bg-slate-200 disabled:text-slate-500"
+      >
+        {blockers.length ? 'Fix Setup First' : 'Looks Good'}
+      </button>
     </div>
   )
+}
+
+function getSetupChecks(setup: TripSetupDraft) {
+  const checks: Array<{ level: 'blocker' | 'warning'; message: string }> = []
+  const namedCourses = setup.courses.filter((course) => course.name.trim())
+
+  if (!setup.tripName.trim()) checks.push({ level: 'blocker', message: 'Add a trip name.' })
+  if (!setup.ownerName.trim()) checks.push({ level: 'warning', message: 'Add an admin name so players know who is running the trip.' })
+  if (setup.playerCount < 2) checks.push({ level: 'blocker', message: 'Set at least 2 players.' })
+  if (setup.roundCount < 1) checks.push({ level: 'blocker', message: 'Set at least 1 round.' })
+  if (!setup.formats.length) checks.push({ level: 'blocker', message: 'Pick at least one round format.' })
+  if (setup.formats.length > setup.roundCount) checks.push({ level: 'blocker', message: 'Format selections cannot exceed the number of rounds.' })
+  if (!namedCourses.length) checks.push({ level: 'blocker', message: 'Add at least one course.' })
+  if (namedCourses.length < Math.min(setup.dayCount, setup.roundCount)) checks.push({ level: 'warning', message: 'Some rounds will use placeholder course names until you fill them in.' })
+  if (setup.playerCount % 2 !== 0 && setup.formats.some((format) => ['FOUR_BALL', 'SINGLES', 'ALT_SHOT'].includes(format))) {
+    checks.push({ level: 'warning', message: 'Match play works best with an even player count.' })
+  }
+
+  return checks
 }
 
 function CompleteStep({ trip, result }: { trip: TripSummary; result: SetupResult | null }) {
@@ -391,6 +441,7 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
   const [query, setQuery] = useState(course.name)
   const [blueGolfUrl, setBlueGolfUrl] = useState(course.blueGolfUrl ?? '')
   const [results, setResults] = useState<Array<{ id: string; name: string; city?: string; state?: string; country?: string }>>([])
+  const [teeOptions, setTeeOptions] = useState<Array<{ id: string; name: string; gender: string; rating: string; slope: string; yardage: number; holes: CourseDraft['holes']; course: Partial<CourseDraft> }>>([])
   const [message, setMessage] = useState('')
 
   async function search() {
@@ -414,8 +465,9 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
       return
     }
 
+    setTeeOptions(json.teeOptions ?? [])
     onImport(json.course)
-    setMessage(json.note ?? 'Imported from BlueGolf.')
+    setMessage([json.note, ...(json.warnings ?? [])].filter(Boolean).join(' '))
   }
 
   return (
@@ -428,7 +480,7 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
       {results.length ? (
         <div className="space-y-2">
           {results.map((result) => (
-            <button key={result.id} onClick={() => onImport({ name: result.name, source: 'golfcourseapi', sourceId: result.id })} className="w-full rounded-xl bg-slate-50 p-2 text-left text-sm ring-1 ring-slate-200">
+            <button key={result.id} onClick={() => onImport({ name: result.name, holes: undefined, source: 'golfcourseapi', sourceId: result.id })} className="w-full rounded-xl bg-slate-50 p-2 text-left text-sm ring-1 ring-slate-200">
               <p className="font-black">{result.name}</p>
               <p className="font-semibold text-slate-500">{[result.city, result.state, result.country].filter(Boolean).join(', ') || 'Location unavailable'}</p>
             </button>
@@ -439,6 +491,19 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
         <input value={blueGolfUrl} onChange={(event) => setBlueGolfUrl(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="BlueGolf course URL" />
         <button onClick={importBlueGolf} className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-black text-white">Import</button>
       </div>
+      {teeOptions.length ? (
+        <div className="space-y-2">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Imported Tees</p>
+          <div className="grid grid-cols-1 gap-2">
+            {teeOptions.map((tee) => (
+              <button key={tee.id} onClick={() => onImport(tee.course)} className="rounded-xl bg-slate-50 p-2 text-left text-xs font-bold ring-1 ring-slate-200">
+                <span className="font-black">{tee.name}{tee.gender ? ` (${tee.gender})` : ''}</span>
+                <span className="text-slate-500"> - {tee.rating || 'NR'}/{tee.slope || 'NS'} - {tee.yardage} yards</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {message ? <p className="text-xs font-bold text-slate-500">{message}</p> : null}
     </div>
   )

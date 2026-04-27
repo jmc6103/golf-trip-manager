@@ -198,7 +198,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
           teeName: course.teeName || null,
           rating: parseNullableFloat(course.rating),
           slope: parseNullableInt(course.slope),
-          totalPar: buildDefaultHoles().reduce((sum, hole) => sum + hole.par, 0),
+          totalPar: totalPar(course.holes),
           source: normalizeCourseSource(course.source),
           sourceId: course.sourceId || null,
           blueGolfUrl: course.blueGolfUrl || null,
@@ -208,6 +208,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
           teeName: course.teeName || null,
           rating: parseNullableFloat(course.rating),
           slope: parseNullableInt(course.slope),
+          totalPar: totalPar(course.holes),
           source: normalizeCourseSource(course.source),
           sourceId: course.sourceId || null,
           blueGolfUrl: course.blueGolfUrl || null,
@@ -221,6 +222,30 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
   const defaultHoles = buildDefaultHoles()
   await Promise.all(
     courses.map(async (course) => {
+      const importedHoles = courseDrafts.find((draft) => draft.day === course.dayNumber)?.holes
+      if (importedHoles?.length === 18) {
+        await Promise.all(
+          importedHoles.map((hole) =>
+            db.hole.upsert({
+              where: { courseId_holeNumber: { courseId: course.id, holeNumber: hole.holeNumber } },
+              create: {
+                courseId: course.id,
+                holeNumber: hole.holeNumber,
+                par: hole.par,
+                strokeIndex: hole.strokeIndex,
+                yardage: hole.yardage ?? null,
+              },
+              update: {
+                par: hole.par,
+                strokeIndex: hole.strokeIndex,
+                yardage: hole.yardage ?? null,
+              },
+            })
+          )
+        )
+        return
+      }
+
       const count = await db.hole.count({ where: { courseId: course.id } })
       if (count) return
       await db.hole.createMany({ data: defaultHoles.map((hole) => ({ ...hole, courseId: course.id })) })
@@ -302,6 +327,11 @@ function parseNullableFloat(value: string) {
 function parseNullableInt(value: string) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && value.trim() ? parsed : null
+}
+
+function totalPar(holes: TripSetupDraft['courses'][number]['holes']) {
+  const source = holes?.length === 18 ? holes : buildDefaultHoles()
+  return source.reduce((sum, hole) => sum + hole.par, 0)
 }
 
 function normalizeRoundFormat(value: string): RoundFormat {

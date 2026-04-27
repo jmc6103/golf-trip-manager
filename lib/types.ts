@@ -37,12 +37,20 @@ export type FormatOption = {
   matchPlay: boolean
 }
 
+export type CourseHoleDraft = {
+  holeNumber: number
+  par: number
+  strokeIndex: number
+  yardage?: number
+}
+
 export type CourseDraft = {
   day: number
   name: string
   teeName: string
   rating: string
   slope: string
+  holes?: CourseHoleDraft[]
   source?: 'manual' | 'golfcourseapi' | 'bluegolf'
   sourceId?: string
   blueGolfUrl?: string
