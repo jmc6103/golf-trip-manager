@@ -471,7 +471,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (value:
 function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (partial: Partial<CourseDraft>) => void }) {
   const [query, setQuery] = useState(course.name)
   const [blueGolfUrl, setBlueGolfUrl] = useState(course.blueGolfUrl ?? '')
-  const [results, setResults] = useState<Array<{ id: string; name: string; city?: string; state?: string; country?: string }>>([])
+  const [results, setResults] = useState<Array<{ id: string; name: string; city?: string; state?: string; country?: string; source?: 'manual' | 'golfcourseapi' | 'bluegolf'; blueGolfUrl?: string }>>([])
   const [teeOptions, setTeeOptions] = useState<Array<{ id: string; name: string; gender: string; rating: string; slope: string; yardage: number; holes: CourseDraft['holes']; course: Partial<CourseDraft> }>>([])
   const [message, setMessage] = useState('')
 
@@ -483,12 +483,12 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
     setMessage(json.error ?? (json.fallback ? 'Showing a manual course entry result.' : ''))
   }
 
-  async function importBlueGolf() {
+  async function importBlueGolf(importUrl = blueGolfUrl) {
     setMessage('Importing BlueGolf page...')
     const res = await fetch('/api/courses/bluegolf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: blueGolfUrl }),
+      body: JSON.stringify({ url: importUrl }),
     })
     const json = await res.json()
     if (!res.ok) {
@@ -501,6 +501,15 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
     setMessage([json.note, ...(json.warnings ?? [])].filter(Boolean).join(' '))
   }
 
+  function chooseSearchResult(result: { name: string; source?: string; blueGolfUrl?: string; id: string }) {
+    if (result.source === 'bluegolf' && result.blueGolfUrl) {
+      setBlueGolfUrl(result.blueGolfUrl)
+      void importBlueGolf(result.blueGolfUrl)
+      return
+    }
+    onImport({ name: result.name, holes: undefined, source: result.source === 'manual' ? 'manual' : 'golfcourseapi', sourceId: result.id })
+  }
+
   return (
     <div className="space-y-2 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">Find a Course</p>
@@ -511,16 +520,19 @@ function CourseTools({ course, onImport }: { course: CourseDraft; onImport: (par
       {results.length ? (
         <div className="space-y-2">
           {results.map((result) => (
-            <button key={result.id} onClick={() => onImport({ name: result.name, holes: undefined, source: 'golfcourseapi', sourceId: result.id })} className="w-full rounded-xl bg-slate-50 p-2 text-left text-sm ring-1 ring-slate-200">
+            <button key={result.id} onClick={() => chooseSearchResult(result)} className="w-full rounded-xl bg-slate-50 p-2 text-left text-sm ring-1 ring-slate-200">
               <p className="font-black">{result.name}</p>
-              <p className="font-semibold text-slate-500">{[result.city, result.state, result.country].filter(Boolean).join(', ') || 'Location unavailable'}</p>
+              <p className="font-semibold text-slate-500">
+                {result.source === 'bluegolf' ? 'BlueGolf scorecard' : [result.city, result.state, result.country].filter(Boolean).join(', ') || 'Location unavailable'}
+                {result.source === 'bluegolf' && [result.city, result.state].filter(Boolean).length ? ` - ${[result.city, result.state].filter(Boolean).join(', ')}` : ''}
+              </p>
             </button>
           ))}
         </div>
       ) : null}
       <div className="flex gap-2">
         <input value={blueGolfUrl} onChange={(event) => setBlueGolfUrl(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="BlueGolf course URL" />
-        <button onClick={importBlueGolf} className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-black text-white">Import</button>
+        <button onClick={() => importBlueGolf()} className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-black text-white">Import</button>
       </div>
       {teeOptions.length ? (
         <div className="space-y-2">
