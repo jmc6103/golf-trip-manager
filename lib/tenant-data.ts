@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { CourseSource, RoundFormat, Trip, TripRole } from '@prisma/client'
 import { getDb } from './db'
 import { buildDefaultHoles } from './trip-ops'
-import { formatOptions } from './trip-data'
+import { createCoursesForSetup, formatOptions } from './trip-data'
 import type { TripSetupDraft, TripSummary } from './types'
 
 export type TripDetail = Awaited<ReturnType<typeof getTripDetail>>
@@ -136,6 +136,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
   const db = getDb()
   const adminToken = setup.adminToken || createAccessToken()
   const formats = setup.formats.length ? setup.formats : ['STROKE_BLIND']
+  const courseDrafts = createCoursesForSetup(setup.dayCount, setup.roundCount, setup.courses)
 
   const trip = await db.trip.upsert({
     where: { slug: setup.slug },
@@ -182,7 +183,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
   }
 
   await Promise.all(
-    setup.courses.map((course) =>
+    courseDrafts.map((course) =>
       db.course.upsert({
         where: { tripId_dayNumber: { tripId: trip.id, dayNumber: course.day } },
         create: {
@@ -209,6 +210,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
       })
     )
   )
+  await db.course.deleteMany({ where: { tripId: trip.id, dayNumber: { gt: courseDrafts.length } } })
 
   const courses = await db.course.findMany({ where: { tripId: trip.id }, orderBy: { dayNumber: 'asc' } })
   const defaultHoles = buildDefaultHoles()

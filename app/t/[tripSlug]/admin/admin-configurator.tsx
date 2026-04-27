@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { saveTripSetup } from '@/app/actions'
-import { createCoursesForDays, createDefaultSetup, formatOptions, tripTemplates } from '@/lib/trip-data'
+import { createCoursesForSetup, createDefaultSetup, formatOptions, tripTemplates } from '@/lib/trip-data'
 import type { CourseDraft, PairingMethod, RulesMode, ScoreMax, TeamMethod, TripSetupDraft, TripSummary, TripTemplateId } from '@/lib/types'
 
 type StepId = 'basics' | 'template' | 'formats' | 'rules' | 'courses' | 'review' | 'complete'
@@ -47,7 +47,7 @@ const pairingMethods: Array<[PairingMethod, string]> = [
 export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean }) {
   const storageKey = `trip-setup:${trip.slug}`
   const router = useRouter()
-  const [setup, setSetup] = useState<TripSetupDraft>(() => initialSetup ?? createDefaultSetup(trip.slug, '', trip.name))
+  const [setup, setSetup] = useState<TripSetupDraft>(() => normalizeSetup(initialSetup ?? createDefaultSetup(trip.slug, '', trip.name)))
   const [stepIndex, setStepIndex] = useState(0)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
@@ -57,13 +57,13 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
     const params = new URLSearchParams(window.location.search)
     const stored = window.localStorage.getItem(storageKey)
     if (stored) {
-      setSetup(JSON.parse(stored) as TripSetupDraft)
+      setSetup(normalizeSetup(JSON.parse(stored) as TripSetupDraft))
       return
     }
 
     const next = initialSetup ?? createDefaultSetup(trip.slug, params.get('ownerName') ?? '', params.get('tripName') ?? trip.name)
     next.ownerEmail = params.get('ownerEmail') ?? ''
-    setSetup(next)
+    setSetup(normalizeSetup(next))
   }, [initialSetup, storageKey, trip.name, trip.slug])
 
   const selectedFormatNames = useMemo(
@@ -72,7 +72,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
   )
 
   function update(partial: Partial<TripSetupDraft>) {
-    setSetup((current) => ({ ...current, ...partial }))
+    setSetup((current) => normalizeSetup({ ...current, ...partial }))
   }
 
   function updateCourse(day: number, partial: Partial<CourseDraft>) {
@@ -96,7 +96,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
     update({
       templateId: id,
       ...template.setup,
-      courses: createCoursesForDays(template.setup.dayCount, setup.courses),
+      courses: createCoursesForSetup(template.setup.dayCount, template.setup.roundCount, setup.courses),
     })
   }
 
@@ -200,12 +200,20 @@ function BasicsStep({ setup, update }: { setup: TripSetupDraft; update: (partial
         <input value={setup.tripName} onChange={(event) => update({ tripName: event.target.value })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 font-bold" placeholder="Trip name" />
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Players" value={setup.playerCount} onChange={(playerCount) => update({ playerCount })} />
-          <NumberField label="Days" value={setup.dayCount} onChange={(dayCount) => update({ dayCount, courses: createCoursesForDays(dayCount, setup.courses) })} />
+          <NumberField label="Days" value={setup.dayCount} onChange={(dayCount) => update({ dayCount })} />
           <NumberField label="Rounds" value={setup.roundCount} onChange={(roundCount) => update({ roundCount, formats: setup.formats.slice(0, roundCount) })} />
         </div>
       </div>
     </div>
   )
+}
+
+function normalizeSetup(next: TripSetupDraft, existingCourses = next.courses): TripSetupDraft {
+  return {
+    ...next,
+    formats: next.formats.slice(0, next.roundCount),
+    courses: createCoursesForSetup(next.dayCount, next.roundCount, existingCourses),
+  }
 }
 
 function TemplateStep({ setup, applyTemplate }: { setup: TripSetupDraft; applyTemplate: (id: TripTemplateId) => void }) {

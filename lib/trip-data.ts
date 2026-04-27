@@ -179,7 +179,7 @@ export function createDefaultSetup(slug: string, ownerName = '', tripName = ''):
     slug,
     templateId: template.id,
     ...template.setup,
-    courses: createCoursesForDays(template.setup.dayCount),
+    courses: createCoursesForSetup(template.setup.dayCount, template.setup.roundCount),
   }
 }
 
@@ -192,6 +192,10 @@ export function createCoursesForDays(dayCount: number, existing: TripSetupDraft[
     slope: '',
     source: 'manual' as const,
   })
+}
+
+export function createCoursesForSetup(dayCount: number, roundCount: number, existing: TripSetupDraft['courses'] = []) {
+  return createCoursesForDays(Math.min(dayCount, roundCount), existing)
 }
 
 function createDraftTrip(slug: string): TripSummary {
