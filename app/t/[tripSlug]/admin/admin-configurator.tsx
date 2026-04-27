@@ -58,6 +58,11 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    if (params.has('adminToken')) {
+      params.delete('adminToken')
+      const nextQuery = params.toString()
+      window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
+    }
     const stored = isExistingTrip ? null : window.localStorage.getItem(storageKey)
     if (stored) {
       setSetup(normalizeSetup(JSON.parse(stored) as TripSetupDraft))
@@ -192,7 +197,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip
         {currentStep.id === 'formats' ? <FormatsStep setup={setup} update={update} toggleFormat={toggleFormat} /> : null}
         {currentStep.id === 'rules' ? <RulesStep setup={setup} update={update} /> : null}
         {currentStep.id === 'courses' ? <CoursesStep setup={setup} updateCourse={updateCourse} /> : null}
-        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} isExistingTrip={isExistingTrip} /> : null}
+        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} isExistingTrip={isExistingTrip} success={success} /> : null}
         {currentStep.id === 'complete' ? <CompleteStep trip={trip} result={setupResult} /> : null}
       </section>
 
@@ -326,7 +331,7 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
   )
 }
 
-function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTrip }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void; isExistingTrip: boolean }) {
+function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTrip, success }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void; isExistingTrip: boolean; success: string }) {
   const checks = getSetupChecks(setup)
   const blockers = checks.filter((check) => check.level === 'blocker')
   const warnings = checks.filter((check) => check.level === 'warning')
@@ -367,6 +372,14 @@ function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTr
       >
         {blockers.length ? 'Fix Setup First' : isExistingTrip ? 'Save Changes' : 'Looks Good'}
       </button>
+      {isExistingTrip && success ? (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Link href={`/t/${trip.slug}/lobby`} className="rounded-2xl bg-white px-4 py-4 text-center font-black text-slate-950 ring-1 ring-slate-200">Lobby</Link>
+          <Link href={`/t/${trip.slug}/team`} className="rounded-2xl bg-white px-4 py-4 text-center font-black text-slate-950 ring-1 ring-slate-200">Team Board</Link>
+          <Link href={`/t/${trip.slug}/player`} className="rounded-2xl bg-white px-4 py-4 text-center font-black text-slate-950 ring-1 ring-slate-200">Player</Link>
+          <Link href={`/t/${trip.slug}`} className="rounded-2xl bg-slate-950 px-4 py-4 text-center font-black text-white">Trip Hub</Link>
+        </div>
+      ) : null}
     </div>
   )
 }
