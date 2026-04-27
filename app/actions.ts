@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { getDb } from '@/lib/db'
-import { clearPlayerCookie, createAccessToken, hashToken, hasAdminAccess, setAdminCookie, setPlayerCookie, upsertTripFromSetup } from '@/lib/tenant-data'
+import { adminPasswordCookieValue, clearPlayerCookie, createAccessToken, hashToken, hasAdminAccess, setAdminCookie, setPlayerCookie, upsertTripFromSetup } from '@/lib/tenant-data'
 import type { TripSetupDraft } from '@/lib/types'
 
 export async function saveTripSetup(setup: TripSetupDraft) {
@@ -11,12 +11,14 @@ export async function saveTripSetup(setup: TripSetupDraft) {
   }
 
   const db = getDb()
-  const existing = await db.trip.findUnique({ where: { slug: setup.slug }, select: { adminTokenHash: true } })
-  if (existing?.adminTokenHash) {
+  const existing = await db.trip.findUnique({ where: { slug: setup.slug }, select: { adminTokenHash: true, adminPasswordHash: true } })
+  if (existing?.adminTokenHash || existing?.adminPasswordHash) {
     const tokenMatches = setup.adminToken ? hashToken(setup.adminToken) === existing.adminTokenHash : false
+    const passwordMatches = setup.adminPassword.trim() && existing.adminPasswordHash ? hashToken(setup.adminPassword.trim()) === existing.adminPasswordHash : false
     const cookieMatches = await hasAdminAccess(setup.slug)
-    if (!tokenMatches && !cookieMatches) return { error: 'Use the private admin link to update this trip.' }
+    if (!tokenMatches && !passwordMatches && !cookieMatches) return { error: 'Use the private admin link or admin password to update this trip.' }
     if (tokenMatches) await setAdminCookie(setup.slug, setup.adminToken)
+    if (passwordMatches && existing.adminPasswordHash) await setAdminCookie(setup.slug, adminPasswordCookieValue(existing.adminPasswordHash))
   }
 
   const { trip, adminToken } = await upsertTripFromSetup(setup, { preserveAdminToken: Boolean(existing?.adminTokenHash) })
@@ -26,6 +28,25 @@ export async function saveTripSetup(setup: TripSetupDraft) {
     inviteUrl: `/t/${setup.slug}/join?code=${trip.inviteCode}`,
     adminToken,
   }
+}
+
+export async function loginTripAdmin(formData: FormData) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not configured for this deployment.')
+  }
+
+  const slug = String(formData.get('slug') ?? '')
+  const password = String(formData.get('adminPassword') ?? '').trim()
+  if (!slug || !password) redirect(slug ? `/t/${slug}/admin?adminError=password-required` : '/')
+
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { adminPasswordHash: true } })
+  if (!trip?.adminPasswordHash || hashToken(password) !== trip.adminPasswordHash) {
+    redirect(`/t/${slug}/admin?adminError=bad-password`)
+  }
+
+  await setAdminCookie(slug, adminPasswordCookieValue(trip.adminPasswordHash))
+  redirect(`/t/${slug}/admin`)
 }
 
 export async function joinTrip(formData: FormData) {

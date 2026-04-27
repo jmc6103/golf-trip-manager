@@ -60,6 +60,7 @@ export type TripSetupDraft = {
   ownerName: string
   ownerEmail: string
   adminToken: string
+  adminPassword: string
   tripName: string
   slug: string
   templateId: TripTemplateId

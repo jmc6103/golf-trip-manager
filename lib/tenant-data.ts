@@ -16,6 +16,10 @@ export function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
 
+export function adminPasswordCookieValue(passwordHash: string) {
+  return `password:${passwordHash}`
+}
+
 export async function listTripSummaries(): Promise<TripSummary[]> {
   if (!process.env.DATABASE_URL) return []
 
@@ -98,12 +102,14 @@ export async function hasAdminAccess(slug: string, queryToken?: string) {
   if (!process.env.DATABASE_URL) return false
 
   const db = getDb()
-  const trip = await db.trip.findUnique({ where: { slug }, select: { adminTokenHash: true } })
-  if (!trip?.adminTokenHash) return false
+  const trip = await db.trip.findUnique({ where: { slug }, select: { adminTokenHash: true, adminPasswordHash: true } })
+  if (!trip?.adminTokenHash && !trip?.adminPasswordHash) return false
 
   const cookieStore = await cookies()
   const token = queryToken || cookieStore.get(adminCookieName(slug))?.value
-  return token ? hashToken(token) === trip.adminTokenHash : false
+  if (!token) return false
+  if (trip.adminTokenHash && hashToken(token) === trip.adminTokenHash) return true
+  return Boolean(trip.adminPasswordHash && token === adminPasswordCookieValue(trip.adminPasswordHash))
 }
 
 export async function setAdminCookie(slug: string, token: string) {
@@ -141,6 +147,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
   const db = getDb()
   const adminToken = setup.adminToken || createAccessToken()
   const adminTokenHash = options.preserveAdminToken ? undefined : hashToken(adminToken)
+  const adminPasswordHash = setup.adminPassword.trim() ? hashToken(setup.adminPassword.trim()) : undefined
   const returnedAdminToken = options.preserveAdminToken && !setup.adminToken ? '' : adminToken
   const formats = setup.formats.length ? setup.formats : ['STROKE_BLIND']
   const courseDrafts = createCoursesForSetup(setup.dayCount, setup.roundCount, setup.courses)
@@ -160,6 +167,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
       teamMethod: setup.teamMethod,
       pairingMethod: setup.pairingMethod,
       adminTokenHash: hashToken(adminToken),
+      adminPasswordHash: adminPasswordHash ?? null,
       adminIdentities: {
         create: setup.ownerEmail
           ? [{ name: setup.ownerName || 'Trip Owner', email: setup.ownerEmail.toLowerCase(), role: 'OWNER' as TripRole }]
@@ -178,6 +186,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
       teamMethod: setup.teamMethod,
       pairingMethod: setup.pairingMethod,
       ...(adminTokenHash ? { adminTokenHash } : {}),
+      ...(adminPasswordHash ? { adminPasswordHash } : {}),
     },
   })
 

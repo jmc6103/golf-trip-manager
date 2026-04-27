@@ -43,6 +43,10 @@ export default async function TripHomePage({ params }: { params: Promise<{ tripS
           <Metric label="Formats" value={String(trip.formats.length)} />
         </section>
 
+        <Link href={`/t/${trip.slug}/admin`} className="block rounded-2xl bg-slate-950 px-4 py-4 text-center font-black text-white shadow-sm">
+          Admin
+        </Link>
+
         {guidance ? (
           <section className="rounded-[24px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
             <p className="text-sm font-black uppercase tracking-wide text-slate-500">Next Up</p>

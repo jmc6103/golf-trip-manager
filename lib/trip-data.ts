@@ -175,6 +175,7 @@ export function createDefaultSetup(slug: string, ownerName = '', tripName = ''):
     ownerName,
     ownerEmail: '',
     adminToken: createAdminToken(),
+    adminPassword: '',
     tripName: tripName || titleFromSlug(slug),
     slug,
     templateId: template.id,

@@ -238,6 +238,7 @@ function BasicsStep({ setup, update }: { setup: TripSetupDraft; update: (partial
       <div className="mt-3 space-y-3">
         <input value={setup.ownerName} onChange={(event) => update({ ownerName: event.target.value })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 font-bold" placeholder="Admin name" />
         <input value={setup.ownerEmail} onChange={(event) => update({ ownerEmail: event.target.value })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 font-bold" placeholder="Admin email for magic-link recovery" type="email" />
+        <input value={setup.adminPassword} onChange={(event) => update({ adminPassword: event.target.value })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 font-bold" placeholder="Admin password" type="password" />
         <input value={setup.tripName} onChange={(event) => update({ tripName: event.target.value })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 font-bold" placeholder="Trip name" />
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Players" value={setup.playerCount} onChange={(playerCount) => update({ playerCount })} />
@@ -406,6 +407,7 @@ function getSetupChecks(setup: TripSetupDraft) {
   const namedCourses = setup.courses.filter((course) => course.name.trim())
 
   if (!setup.tripName.trim()) checks.push({ level: 'blocker', message: 'Add a trip name.' })
+  if (!setup.adminPassword.trim()) checks.push({ level: 'warning', message: 'Add an admin password so you can unlock this trip later.' })
   if (!setup.ownerName.trim()) checks.push({ level: 'warning', message: 'Add an admin name so players know who is running the trip.' })
   if (setup.playerCount < 2) checks.push({ level: 'blocker', message: 'Set at least 2 players.' })
   if (setup.roundCount < 1) checks.push({ level: 'blocker', message: 'Set at least 1 round.' })

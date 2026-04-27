@@ -117,6 +117,7 @@ model Trip {
   pairingMethod  PairingMethod @default(RULE_BASED)
   inviteCode     String        @unique @default(cuid())
   adminTokenHash String?
+  adminPasswordHash String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
