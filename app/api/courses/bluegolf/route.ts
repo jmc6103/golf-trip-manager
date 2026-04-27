@@ -9,7 +9,10 @@ export async function POST(req: Request) {
   }
 
   const parsed = new URL(url)
-  if (!parsed.hostname.endsWith('bluegolf.com')) {
+  if (parsed.protocol !== 'https:') {
+    return NextResponse.json({ error: 'Only HTTPS BlueGolf URLs are supported.' }, { status: 400 })
+  }
+  if (parsed.hostname !== 'bluegolf.com' && !parsed.hostname.endsWith('.bluegolf.com')) {
     return NextResponse.json({ error: 'Only bluegolf.com URLs are supported for this import.' }, { status: 400 })
   }
 

@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { saveTripSetup } from '@/app/actions'
 import { createCoursesForSetup, createDefaultSetup, formatOptions, tripTemplates } from '@/lib/trip-data'
@@ -44,13 +43,15 @@ const pairingMethods: Array<[PairingMethod, string]> = [
   ['RANDOM', 'Random pairings'],
 ]
 
+type SetupResult = { adminUrl: string; inviteUrl: string; adminToken: string }
+
 export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean }) {
   const storageKey = `trip-setup:${trip.slug}`
-  const router = useRouter()
   const [setup, setSetup] = useState<TripSetupDraft>(() => normalizeSetup(initialSetup ?? createDefaultSetup(trip.slug, '', trip.name)))
   const [stepIndex, setStepIndex] = useState(0)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
+  const [setupResult, setSetupResult] = useState<SetupResult | null>(null)
   const currentStep = steps[stepIndex]
 
   useEffect(() => {
@@ -106,12 +107,13 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
   }
 
   function completeSetup() {
-    window.localStorage.setItem(storageKey, JSON.stringify(setup))
     setError('')
     startTransition(async () => {
       try {
         const result = await saveTripSetup(setup)
-        router.push(result.adminUrl)
+        window.localStorage.removeItem(storageKey)
+        setSetupResult(result)
+        setStepIndex(steps.findIndex((step) => step.id === 'complete'))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save trip setup.')
       }
@@ -173,7 +175,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
         {currentStep.id === 'rules' ? <RulesStep setup={setup} update={update} /> : null}
         {currentStep.id === 'courses' ? <CoursesStep setup={setup} updateCourse={updateCourse} /> : null}
         {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} /> : null}
-        {currentStep.id === 'complete' ? <CompleteStep trip={trip} /> : null}
+        {currentStep.id === 'complete' ? <CompleteStep trip={trip} result={setupResult} /> : null}
       </section>
 
       {currentStep.id !== 'complete' ? (
@@ -312,26 +314,36 @@ function ReviewStep({ trip, setup, selectedFormatNames, onComplete }: { trip: Tr
         <ReviewRow label="Formats" value={selectedFormatNames.join(' / ') || 'No formats selected'} />
         <ReviewRow label="Rules" value={`${setup.rulesMode} / ${setup.scoreMax}`} />
         <ReviewRow label="Teams" value={`${setup.teamMethod} / ${setup.pairingMethod}`} />
-        <ReviewRow label="Invite Link" value={`/t/${trip.slug}/join`} />
-        <ReviewRow label="Admin Link" value={`/t/${trip.slug}/admin?adminToken=${setup.adminToken}`} />
+        <ReviewRow label="Invite Link" value="Generated on completion" />
+        <ReviewRow label="Admin Link" value={`/t/${trip.slug}/admin`} />
       </div>
       <button onClick={onComplete} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white">Looks Good</button>
     </div>
   )
 }
 
-function CompleteStep({ trip }: { trip: TripSummary }) {
+function CompleteStep({ trip, result }: { trip: TripSummary; result: SetupResult | null }) {
   return (
     <div>
       <SectionTitle title="Setup Complete" />
-      <div className="mt-3 space-y-3 text-sm font-semibold text-slate-600">
-        <p className="rounded-2xl bg-emerald-50 p-3 font-black text-emerald-800">Setup complete.</p>
-        <p className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">Invite players: /t/{trip.slug}/join</p>
-        <p className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">Trip setup will finalize after player registration is complete.</p>
-        <p className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">Use the admin page to adjust teams, pairings, courses, and scoring before play begins.</p>
+      <div className="mt-3 space-y-3">
+        <p className="rounded-2xl bg-emerald-50 p-3 font-black text-emerald-800">Your trip is live. You&apos;re logged in as admin.</p>
+        {result ? (
+          <>
+            <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Player Invite Link</p>
+              <p className="mt-1 break-all text-sm font-bold text-slate-950">{result.inviteUrl}</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
+              <p className="text-xs font-black uppercase tracking-wide text-amber-700">Admin Recovery Link — Save This Now</p>
+              <p className="mt-1 break-all text-xs font-mono font-bold text-amber-900">/t/{trip.slug}/admin?adminToken={result.adminToken}</p>
+              <p className="mt-2 text-xs font-semibold text-amber-700">If you lose your admin session, use this link to recover access. It will not be shown again.</p>
+            </div>
+          </>
+        ) : null}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <Link href={`/t/${trip.slug}/join`} className="rounded-2xl bg-slate-950 px-4 py-4 text-center font-black text-white">Open Invite</Link>
+        <Link href={result?.adminUrl ?? `/t/${trip.slug}/admin`} className="rounded-2xl bg-slate-950 px-4 py-4 text-center font-black text-white">Open Admin</Link>
         <Link href={`/t/${trip.slug}/team`} className="rounded-2xl bg-white px-4 py-4 text-center font-black text-slate-950 ring-1 ring-slate-200">Team Board</Link>
       </div>
     </div>

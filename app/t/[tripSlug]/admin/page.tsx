@@ -1,7 +1,8 @@
+import { redirect } from 'next/navigation'
 import { AdminConfigurator } from './admin-configurator'
 import { AdminControlRoom } from './admin-control-room'
 import { createDefaultSetup } from '@/lib/trip-data'
-import { getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
+import { getTripDetail, getTripSummary, hasAdminAccess, setAdminCookie } from '@/lib/tenant-data'
 
 export default async function AdminPage({
   params,
@@ -12,12 +13,21 @@ export default async function AdminPage({
 }) {
   const { tripSlug } = await params
   const query = await searchParams
+
+  // One-time token exchange: validate token, set cookie, strip token from URL
+  if (query.adminToken) {
+    const trip = await getTripSummary(tripSlug)
+    if (trip && await hasAdminAccess(tripSlug, query.adminToken)) {
+      await setAdminCookie(tripSlug, query.adminToken)
+      redirect(`/t/${tripSlug}/admin`)
+    }
+  }
+
   const trip = await getTripSummary(tripSlug)
   const detail = trip ? await getTripDetail(tripSlug) : null
   const fallback = createDefaultSetup(tripSlug, query.ownerName ?? '', query.tripName ?? '')
   fallback.ownerEmail = query.ownerEmail ?? ''
-  fallback.adminToken = query.adminToken ?? fallback.adminToken
-  const canAdmin = trip ? await hasAdminAccess(tripSlug, query.adminToken) : true
+  const canAdmin = trip ? await hasAdminAccess(tripSlug) : true
 
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">

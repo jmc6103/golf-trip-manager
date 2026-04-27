@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { maxScoreForHole } from '@/lib/scoring'
 
 type PlayerCard = {
   trip: { slug: string; name: string; scoreMax: string }
@@ -135,6 +136,7 @@ export function PlayerScorecard({ slug }: { slug: string }) {
           hole={activeHole}
           holeIndex={activeHoleIndex}
           totalHoles={totalHoles}
+          maxScore={maxScoreForHole(activeHole.par, data.trip.scoreMax)}
           savedScore={data.myScores[activeHole.holeNumber]}
           saving={savingHole === activeHole.holeNumber}
           strokeInfo={data.strokeSummary[activeHole.holeNumber]}
@@ -201,6 +203,7 @@ function HoleScoreCard({
   hole,
   holeIndex,
   totalHoles,
+  maxScore,
   savedScore,
   saving,
   strokeInfo,
@@ -213,6 +216,7 @@ function HoleScoreCard({
   hole: PlayerCard['course']['holes'][number]
   holeIndex: number
   totalHoles: number
+  maxScore: number
   savedScore: number | undefined
   saving: boolean
   strokeInfo: { gets: number; gives: number; label: string } | undefined
@@ -222,7 +226,7 @@ function HoleScoreCard({
   onTouchStart: (x: number) => void
   onTouchEnd: (x: number) => void
 }) {
-  const choices = Array.from({ length: hole.par + 3 }, (_, index) => index + 1)
+  const choices = Array.from({ length: maxScore }, (_, index) => index + 1)
   return (
     <section
       className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200"

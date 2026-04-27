@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 
 type AdminTrip = {
   slug: string
+  inviteCode: string
   teamMethod: string
   pairingMethod: string
   players: Array<{ id: string; name: string; handicap: number | null }>
@@ -43,6 +44,14 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
 
   return (
     <section className="space-y-4">
+      <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <SectionTitle title="Invite Players" />
+        <div className="mt-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Player Invite Link</p>
+          <p className="mt-1 break-all text-sm font-bold text-slate-950">/t/{trip.slug}/join?code={trip.inviteCode}</p>
+        </div>
+      </section>
+
       <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <SectionTitle title="Trip Control Room" />
         <p className="mt-2 text-sm font-semibold text-slate-500">

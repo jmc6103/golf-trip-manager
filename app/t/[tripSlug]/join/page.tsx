@@ -2,10 +2,31 @@ import { notFound } from 'next/navigation'
 import { joinTrip } from '@/app/actions'
 import { getTripSummary } from '@/lib/tenant-data'
 
-export default async function JoinPage({ params }: { params: Promise<{ tripSlug: string }> }) {
+export default async function JoinPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ tripSlug: string }>
+  searchParams: Promise<{ code?: string }>
+}) {
   const { tripSlug } = await params
+  const { code } = await searchParams
   const trip = await getTripSummary(tripSlug)
   if (!trip) notFound()
+
+  if (!code) {
+    return (
+      <main className="min-h-screen px-4 py-5 text-slate-950">
+        <div className="mx-auto max-w-md rounded-[28px] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Player Invite</p>
+          <h1 className="mt-2 text-3xl font-black">Invalid Invite Link</h1>
+          <p className="mt-3 text-sm font-semibold text-slate-500">
+            This link is missing an invite code. Please use the invite link shared by the trip organizer.
+          </p>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">
@@ -14,6 +35,7 @@ export default async function JoinPage({ params }: { params: Promise<{ tripSlug:
         <h1 className="mt-2 text-3xl font-black">Join {trip.name}</h1>
         <form action={joinTrip} className="mt-5 space-y-3">
           <input type="hidden" name="slug" value={trip.slug} />
+          <input type="hidden" name="inviteCode" value={code} />
           <input name="name" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Name" required />
           <input name="email" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Email (optional)" type="email" />
           <input name="handicap" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Handicap" inputMode="decimal" />

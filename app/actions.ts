@@ -19,8 +19,12 @@ export async function saveTripSetup(setup: TripSetupDraft) {
     if (tokenMatches) await setAdminCookie(setup.slug, setup.adminToken)
   }
 
-  const { adminToken } = await upsertTripFromSetup(setup)
-  return { adminUrl: `/t/${setup.slug}/admin?adminToken=${encodeURIComponent(adminToken)}` }
+  const { trip, adminToken } = await upsertTripFromSetup(setup)
+  return {
+    adminUrl: `/t/${setup.slug}/admin`,
+    inviteUrl: `/t/${setup.slug}/join?code=${trip.inviteCode}`,
+    adminToken,
+  }
 }
 
 export async function joinTrip(formData: FormData) {
@@ -33,14 +37,16 @@ export async function joinTrip(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim().toLowerCase()
   const handicapValue = String(formData.get('handicap') ?? '').trim()
   const handicap = handicapValue ? Number(handicapValue) : null
+  const inviteCode = String(formData.get('inviteCode') ?? '').trim()
 
   if (!slug || !name) {
     throw new Error('Trip and player name are required.')
   }
 
   const db = getDb()
-  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true, maxPlayers: true, _count: { select: { players: true } } } })
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true, maxPlayers: true, inviteCode: true, _count: { select: { players: true } } } })
   if (!trip) throw new Error('Trip not found.')
+  if (trip.inviteCode !== inviteCode) throw new Error('Invalid invite link. Please use the link shared by the trip organizer.')
   if (trip._count.players >= trip.maxPlayers) throw new Error('This trip is already full.')
 
   const existing = await db.player.findUnique({ where: { tripId_name: { tripId: trip.id, name } } })
