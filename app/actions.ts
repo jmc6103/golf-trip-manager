@@ -15,11 +15,11 @@ export async function saveTripSetup(setup: TripSetupDraft) {
   if (existing?.adminTokenHash) {
     const tokenMatches = setup.adminToken ? hashToken(setup.adminToken) === existing.adminTokenHash : false
     const cookieMatches = await hasAdminAccess(setup.slug)
-    if (!tokenMatches && !cookieMatches) throw new Error('Use the private admin link to update this trip.')
+    if (!tokenMatches && !cookieMatches) return { error: 'Use the private admin link to update this trip.' }
     if (tokenMatches) await setAdminCookie(setup.slug, setup.adminToken)
   }
 
-  const { trip, adminToken } = await upsertTripFromSetup(setup)
+  const { trip, adminToken } = await upsertTripFromSetup(setup, { preserveAdminToken: Boolean(existing?.adminTokenHash) })
   return {
     adminUrl: `/t/${setup.slug}/admin`,
     inviteUrl: `/t/${setup.slug}/join?code=${trip.inviteCode}`,

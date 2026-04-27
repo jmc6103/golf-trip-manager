@@ -45,18 +45,20 @@ const pairingMethods: Array<[PairingMethod, string]> = [
 
 type SetupResult = { adminUrl: string; inviteUrl: string; adminToken: string }
 
-export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean }) {
+export function AdminConfigurator({ trip, initialSetup, canAdmin, isExistingTrip = false }: { trip: TripSummary; initialSetup: TripSetupDraft; canAdmin: boolean; isExistingTrip?: boolean }) {
   const storageKey = `trip-setup:${trip.slug}`
+  const flowSteps = isExistingTrip ? steps.filter((step) => step.id !== 'complete') : steps
   const [setup, setSetup] = useState<TripSetupDraft>(() => normalizeSetup(initialSetup ?? createDefaultSetup(trip.slug, '', trip.name)))
   const [stepIndex, setStepIndex] = useState(0)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [setupResult, setSetupResult] = useState<SetupResult | null>(null)
-  const currentStep = steps[stepIndex]
+  const currentStep = flowSteps[stepIndex] ?? flowSteps[0]
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const stored = window.localStorage.getItem(storageKey)
+    const stored = isExistingTrip ? null : window.localStorage.getItem(storageKey)
     if (stored) {
       setSetup(normalizeSetup(JSON.parse(stored) as TripSetupDraft))
       return
@@ -65,7 +67,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
     const next = initialSetup ?? createDefaultSetup(trip.slug, params.get('ownerName') ?? '', params.get('tripName') ?? trip.name)
     next.ownerEmail = params.get('ownerEmail') ?? ''
     setSetup(normalizeSetup(next))
-  }, [initialSetup, storageKey, trip.name, trip.slug])
+  }, [initialSetup, isExistingTrip, storageKey, trip.name, trip.slug])
 
   const selectedFormatNames = useMemo(
     () => setup.formats.map((id) => formatOptions.find((format) => format.id === id)?.name ?? id),
@@ -102,18 +104,29 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
   }
 
   function saveAndReview() {
-    window.localStorage.setItem(storageKey, JSON.stringify(setup))
+    if (!isExistingTrip) window.localStorage.setItem(storageKey, JSON.stringify(setup))
     setStepIndex(steps.findIndex((step) => step.id === 'review'))
   }
 
   function completeSetup() {
     setError('')
+    setSuccess('')
     startTransition(async () => {
       try {
         const result = await saveTripSetup(setup)
+        if ('error' in result && result.error) {
+          setError(result.error)
+          return
+        }
+        if (!result.adminUrl || !result.inviteUrl || !result.adminToken) return
+        const savedResult: SetupResult = { adminUrl: result.adminUrl, inviteUrl: result.inviteUrl, adminToken: result.adminToken }
         window.localStorage.removeItem(storageKey)
-        setSetupResult(result)
-        setStepIndex(steps.findIndex((step) => step.id === 'complete'))
+        if (isExistingTrip) {
+          setSuccess('Setup changes saved.')
+        } else {
+          setSetupResult(savedResult)
+          setStepIndex(steps.findIndex((step) => step.id === 'complete'))
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save trip setup.')
       }
@@ -125,7 +138,7 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
       saveAndReview()
       return
     }
-    setStepIndex((current) => Math.min(current + 1, steps.length - 1))
+    setStepIndex((current) => Math.min(current + 1, flowSteps.length - 1))
   }
 
   function goBack() {
@@ -151,10 +164,15 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
           {error}
         </section>
       ) : null}
+      {success ? (
+        <section className="rounded-[24px] bg-emerald-50 p-4 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">
+          {success}
+        </section>
+      ) : null}
 
       <section className="rounded-[24px] bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-center gap-2 overflow-x-auto">
-          {steps.map((step, index) => (
+          {flowSteps.map((step, index) => (
             <button
               key={step.id}
               onClick={() => setStepIndex(index)}
@@ -174,11 +192,11 @@ export function AdminConfigurator({ trip, initialSetup, canAdmin }: { trip: Trip
         {currentStep.id === 'formats' ? <FormatsStep setup={setup} update={update} toggleFormat={toggleFormat} /> : null}
         {currentStep.id === 'rules' ? <RulesStep setup={setup} update={update} /> : null}
         {currentStep.id === 'courses' ? <CoursesStep setup={setup} updateCourse={updateCourse} /> : null}
-        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} /> : null}
+        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} isExistingTrip={isExistingTrip} /> : null}
         {currentStep.id === 'complete' ? <CompleteStep trip={trip} result={setupResult} /> : null}
       </section>
 
-      {currentStep.id !== 'complete' ? (
+      {currentStep.id !== 'complete' && !(isExistingTrip && currentStep.id === 'review') ? (
         <section className="grid grid-cols-2 gap-3">
           <button onClick={goBack} disabled={stepIndex === 0} className="rounded-2xl bg-white px-4 py-4 font-black text-slate-700 ring-1 ring-slate-200 disabled:text-slate-300">
             Back
@@ -308,7 +326,7 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
   )
 }
 
-function ReviewStep({ trip, setup, selectedFormatNames, onComplete }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void }) {
+function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTrip }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void; isExistingTrip: boolean }) {
   const checks = getSetupChecks(setup)
   const blockers = checks.filter((check) => check.level === 'blocker')
   const warnings = checks.filter((check) => check.level === 'warning')
@@ -347,7 +365,7 @@ function ReviewStep({ trip, setup, selectedFormatNames, onComplete }: { trip: Tr
         disabled={Boolean(blockers.length)}
         className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white disabled:bg-slate-200 disabled:text-slate-500"
       >
-        {blockers.length ? 'Fix Setup First' : 'Looks Good'}
+        {blockers.length ? 'Fix Setup First' : isExistingTrip ? 'Save Changes' : 'Looks Good'}
       </button>
     </div>
   )

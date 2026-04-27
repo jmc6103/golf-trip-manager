@@ -133,13 +133,14 @@ export async function clearPlayerCookie(slug: string) {
   cookieStore.delete(playerCookieName(slug))
 }
 
-export async function upsertTripFromSetup(setup: TripSetupDraft) {
+export async function upsertTripFromSetup(setup: TripSetupDraft, options: { preserveAdminToken?: boolean } = {}) {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not configured for this deployment.')
   }
 
   const db = getDb()
   const adminToken = setup.adminToken || createAccessToken()
+  const adminTokenHash = options.preserveAdminToken ? undefined : hashToken(adminToken)
   const formats = setup.formats.length ? setup.formats : ['STROKE_BLIND']
   const courseDrafts = createCoursesForSetup(setup.dayCount, setup.roundCount, setup.courses)
 
@@ -166,7 +167,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
     },
     update: {
       name: setup.tripName,
-      status: 'REGISTRATION',
+      ...(options.preserveAdminToken ? {} : { status: 'REGISTRATION' as const }),
       template: setup.templateId,
       maxPlayers: setup.playerCount,
       dayCount: setup.dayCount,
@@ -175,7 +176,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
       scoreMax: setup.scoreMax,
       teamMethod: setup.teamMethod,
       pairingMethod: setup.pairingMethod,
-      adminTokenHash: hashToken(adminToken),
+      ...(adminTokenHash ? { adminTokenHash } : {}),
     },
   })
 
@@ -280,8 +281,9 @@ export async function upsertTripFromSetup(setup: TripSetupDraft) {
       })
     })
   )
+  await db.round.deleteMany({ where: { tripId: trip.id, roundNumber: { gt: setup.roundCount } } })
 
-  await setAdminCookie(setup.slug, adminToken)
+  if (!options.preserveAdminToken) await setAdminCookie(setup.slug, adminToken)
   return { trip, adminToken }
 }
 
