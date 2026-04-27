@@ -20,8 +20,9 @@ export async function saveTripSetup(setup: TripSetupDraft) {
   }
 
   const { trip, adminToken } = await upsertTripFromSetup(setup, { preserveAdminToken: Boolean(existing?.adminTokenHash) })
+  const adminUrl = adminToken ? `/t/${setup.slug}/admin?adminToken=${encodeURIComponent(adminToken)}` : `/t/${setup.slug}/admin`
   return {
-    adminUrl: `/t/${setup.slug}/admin`,
+    adminUrl,
     inviteUrl: `/t/${setup.slug}/join?code=${trip.inviteCode}`,
     adminToken,
   }

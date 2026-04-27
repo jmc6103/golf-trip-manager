@@ -213,7 +213,7 @@ export function AdminConfigurator({
         {currentStep.id === 'formats' ? <FormatsStep setup={setup} update={update} toggleFormat={toggleFormat} /> : null}
         {currentStep.id === 'rules' ? <RulesStep setup={setup} update={update} /> : null}
         {currentStep.id === 'courses' ? <CoursesStep setup={setup} updateCourse={updateCourse} /> : null}
-        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} isExistingTrip={isExistingTrip} success={success} /> : null}
+        {currentStep.id === 'review' ? <ReviewStep trip={trip} setup={setup} selectedFormatNames={selectedFormatNames} onComplete={completeSetup} isExistingTrip={isExistingTrip} success={success} canAdmin={canAdmin} /> : null}
         {currentStep.id === 'complete' ? <CompleteStep trip={trip} result={setupResult} /> : null}
       </section>
 
@@ -347,10 +347,11 @@ function CoursesStep({ setup, updateCourse }: { setup: TripSetupDraft; updateCou
   )
 }
 
-function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTrip, success }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void; isExistingTrip: boolean; success: string }) {
+function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTrip, success, canAdmin }: { trip: TripSummary; setup: TripSetupDraft; selectedFormatNames: string[]; onComplete: () => void; isExistingTrip: boolean; success: string; canAdmin: boolean }) {
   const checks = getSetupChecks(setup)
   const blockers = checks.filter((check) => check.level === 'blocker')
   const warnings = checks.filter((check) => check.level === 'warning')
+  const saveDisabled = Boolean(blockers.length) || (isExistingTrip && !canAdmin)
 
   return (
     <div>
@@ -383,10 +384,10 @@ function ReviewStep({ trip, setup, selectedFormatNames, onComplete, isExistingTr
       </div>
       <button
         onClick={onComplete}
-        disabled={Boolean(blockers.length)}
+        disabled={saveDisabled}
         className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white disabled:bg-slate-200 disabled:text-slate-500"
       >
-        {blockers.length ? 'Fix Setup First' : isExistingTrip ? 'Save Changes' : 'Looks Good'}
+        {blockers.length ? 'Fix Setup First' : isExistingTrip && !canAdmin ? 'Private Link Required' : isExistingTrip ? 'Save Changes' : 'Looks Good'}
       </button>
       {isExistingTrip && success ? (
         <div className="mt-4 grid grid-cols-2 gap-2">

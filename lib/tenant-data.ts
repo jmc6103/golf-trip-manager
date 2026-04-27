@@ -141,6 +141,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
   const db = getDb()
   const adminToken = setup.adminToken || createAccessToken()
   const adminTokenHash = options.preserveAdminToken ? undefined : hashToken(adminToken)
+  const returnedAdminToken = options.preserveAdminToken && !setup.adminToken ? '' : adminToken
   const formats = setup.formats.length ? setup.formats : ['STROKE_BLIND']
   const courseDrafts = createCoursesForSetup(setup.dayCount, setup.roundCount, setup.courses)
 
@@ -284,7 +285,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
   await db.round.deleteMany({ where: { tripId: trip.id, roundNumber: { gt: setup.roundCount } } })
 
   if (!options.preserveAdminToken) await setAdminCookie(setup.slug, adminToken)
-  return { trip, adminToken }
+  return { trip, adminToken: returnedAdminToken }
 }
 
 function toTripSummary(
