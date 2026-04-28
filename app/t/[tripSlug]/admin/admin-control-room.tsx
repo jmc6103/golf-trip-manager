@@ -30,6 +30,7 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
   const router = useRouter()
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
+  const [copied, setCopied] = useState(false)
   const readiness = getReadiness(trip)
 
   async function mutate(body: unknown, method = 'POST') {
@@ -59,7 +60,21 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
         <SectionTitle title="Invite Players" />
         <div className="mt-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
           <p className="text-xs font-black uppercase tracking-wide text-slate-500">Player Invite Link</p>
-          <p className="mt-1 break-all text-sm font-bold text-slate-950">/t/{trip.slug}/join?code={trip.inviteCode}</p>
+          <p className="mt-1 break-all text-sm font-bold text-slate-950">
+            {typeof window !== 'undefined' ? window.location.origin : ''}/t/{trip.slug}/join?code={trip.inviteCode}
+          </p>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}/t/${trip.slug}/join?code=${trip.inviteCode}`
+              navigator.clipboard.writeText(url).then(() => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+              })
+            }}
+            className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white active:opacity-80"
+          >
+            {copied ? 'Copied!' : 'Copy Link'}
+          </button>
         </div>
       </section>
 

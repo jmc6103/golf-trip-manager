@@ -73,6 +73,28 @@ No auth library. Two cookie-based access levels, both scoped to `/t/[tripSlug]`:
 - Admin ops route drives transitions: generate-teams sets `TEAMS_READY`, start-round sets `LIVE`.
 - `upsertTripFromSetup` always sets status to `REGISTRATION` (idempotent re-setup).
 
+## Backlog
+
+Ideas that are intentionally deferred — don't implement unless the user explicitly asks.
+
+### Email magic-link admin recovery
+When an admin loses their browser session, the only recovery today is the `?adminToken=...` URL shown once at setup. Magic links via email would be a proper self-service fallback.
+
+**Needs before building:**
+- A custom domain (to send email from). Currently the app runs on a Vercel-generated URL (`*.vercel.app`) which can't be used as an email sender domain.
+- [Resend](https://resend.com) for email delivery (free tier: 3k emails/month). One `npm install resend` + `RESEND_API_KEY` env var.
+- Domain DNS verification in Resend (~10 min once domain is bought).
+
+**What to build:**
+- `AdminRecoveryToken` Prisma model (token hash, tripId, expiresAt, usedAt)
+- Request route: match email against `AdminIdentity`, generate token, send link
+- Consume route: validate token, mark used, set admin cookie, redirect
+- UI: "Lost access?" form on the admin page
+
+Deferred until there's real usage that justifies the domain cost (~$10-15/yr).
+
+---
+
 ### Data model key points
 
 - `Trip` → `Round` → `Match` → `MatchSide` → `MatchPlayer` chain drives all match play.
