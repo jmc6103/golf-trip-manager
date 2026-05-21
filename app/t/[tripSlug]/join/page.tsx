@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { joinTrip } from '@/app/actions'
-import { getTripSummary } from '@/lib/tenant-data'
+import { getTripDetail, getTripSummary } from '@/lib/tenant-data'
 
 export default async function JoinPage({
   params,
@@ -12,7 +12,9 @@ export default async function JoinPage({
   const { tripSlug } = await params
   const { code } = await searchParams
   const trip = await getTripSummary(tripSlug)
+  const detail = trip ? await getTripDetail(tripSlug) : null
   if (!trip) notFound()
+  const teeOptions = getJoinTeeOptions(detail?.courses ?? [])
 
   if (!code) {
     return (
@@ -39,9 +41,29 @@ export default async function JoinPage({
           <input name="name" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Name" required />
           <input name="email" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Email (optional)" type="email" />
           <input name="handicap" className="w-full rounded-2xl border border-slate-200 px-4 py-4 font-bold" placeholder="Handicap" inputMode="decimal" />
+          {teeOptions.length > 1 ? (
+            <select name="teeName" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 font-bold" defaultValue="">
+              <option value="">Preferred tee (optional)</option>
+              {teeOptions.map((tee) => <option key={tee} value={tee}>{tee}</option>)}
+            </select>
+          ) : null}
           <button className="w-full rounded-2xl bg-slate-950 px-4 py-4 font-black text-white">Join Trip</button>
         </form>
       </div>
     </main>
   )
+}
+
+function getJoinTeeOptions(courses: Array<{ teeName: string | null; teeOptions: unknown }>) {
+  const names = new Set<string>()
+  for (const course of courses) {
+    if (course.teeName) names.add(course.teeName)
+    if (!Array.isArray(course.teeOptions)) continue
+    for (const item of course.teeOptions) {
+      if (!item || typeof item !== 'object') continue
+      const name = (item as Record<string, unknown>).name
+      if (typeof name === 'string' && name.trim()) names.add(name)
+    }
+  }
+  return [...names]
 }

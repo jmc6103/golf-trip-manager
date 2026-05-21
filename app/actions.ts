@@ -60,13 +60,14 @@ export async function joinTrip(formData: FormData) {
   const handicapValue = String(formData.get('handicap') ?? '').trim()
   const handicap = handicapValue ? Number(handicapValue) : null
   const inviteCode = String(formData.get('inviteCode') ?? '').trim()
+  const teeName = String(formData.get('teeName') ?? '').trim()
 
   if (!slug || !name) {
     throw new Error('Trip and player name are required.')
   }
 
   const db = getDb()
-  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true, maxPlayers: true, inviteCode: true, _count: { select: { players: true } } } })
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true, maxPlayers: true, inviteCode: true, rounds: { select: { id: true } }, _count: { select: { players: true } } } })
   if (!trip) throw new Error('Trip not found.')
   if (trip.inviteCode !== inviteCode) throw new Error('Invalid invite link. Please use the link shared by the trip organizer.')
   if (trip._count.players >= trip.maxPlayers) throw new Error('This trip is already full.')
@@ -90,6 +91,17 @@ export async function joinTrip(formData: FormData) {
   })
 
   await setPlayerCookie(slug, player.accessToken)
+  if (teeName) {
+    await Promise.all(
+      trip.rounds.map((round) =>
+        db.playerRoundTee.upsert({
+          where: { playerId_roundId: { playerId: player.id, roundId: round.id } },
+          create: { playerId: player.id, roundId: round.id, teeName },
+          update: { teeName },
+        })
+      )
+    )
+  }
   redirect(`/t/${slug}/player`)
 }
 

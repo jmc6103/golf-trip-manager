@@ -16,6 +16,20 @@ export type ScoreForScoring = {
   gross: number
 }
 
+export type TeeOptionForScoring = {
+  name: string
+  rating?: number | string | null
+  slope?: number | string | null
+}
+
+export type CourseForHandicap = {
+  teeName?: string | null
+  rating?: number | null
+  slope?: number | null
+  totalPar?: number | null
+  teeOptions?: unknown
+}
+
 export type MatchHoleStatus = {
   holeNumber: number
   completed: boolean
@@ -45,6 +59,26 @@ export function allowanceForFormat(format: string) {
   if (format === 'FOUR_BALL') return 0.9
   if (format === 'STROKE_BLIND') return 0.95
   return 1
+}
+
+export function getPlayerHandicap(playerHandicap: number | null | undefined, course?: CourseForHandicap | null, teeNameOverride?: string | null) {
+  const index = playerHandicap ?? 0
+  const tee = resolveTee(course, teeNameOverride)
+  const slope = toFiniteNumber(tee?.slope ?? course?.slope)
+  const rating = toFiniteNumber(tee?.rating ?? course?.rating)
+  const par = course?.totalPar ?? null
+
+  if (!slope || !rating || !par) return Math.round(index)
+  return Math.round(index * (slope / 113) + (rating - par))
+}
+
+export function getCourseTeeOptions(course?: CourseForHandicap | null): TeeOptionForScoring[] {
+  const options = parseTeeOptions(course?.teeOptions)
+  const currentName = course?.teeName?.trim()
+  if (currentName && !options.some((option) => option.name === currentName)) {
+    return [{ name: currentName, rating: course?.rating, slope: course?.slope }, ...options]
+  }
+  return options
 }
 
 export function getStrokeHoles(strokeDiff: number, holes: HoleForScoring[]) {
@@ -199,4 +233,34 @@ function pointsFromStatus(status: Omit<MatchStatus, 'points'>) {
   if (status.result === 'HALVED') return { sideOne: 0.5, sideTwo: 0.5 }
   if (status.completedHoles === 0 || status.sideOneUp === 0) return { sideOne: 0.5, sideTwo: 0.5 }
   return status.sideOneUp > 0 ? { sideOne: 1, sideTwo: 0 } : { sideOne: 0, sideTwo: 1 }
+}
+
+function resolveTee(course: CourseForHandicap | null | undefined, teeNameOverride?: string | null) {
+  const options = getCourseTeeOptions(course)
+  const requested = teeNameOverride?.trim()
+  if (requested) {
+    const match = options.find((option) => option.name === requested)
+    if (match) return match
+  }
+  return options.find((option) => option.name === course?.teeName) ?? options[0]
+}
+
+function parseTeeOptions(value: unknown): TeeOptionForScoring[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const name = typeof record.name === 'string' ? record.name.trim() : ''
+    if (!name) return []
+    return [{ name, rating: scalar(record.rating), slope: scalar(record.slope) }]
+  })
+}
+
+function scalar(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || value == null ? value : null
+}
+
+function toFiniteNumber(value: string | number | null | undefined) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
 }

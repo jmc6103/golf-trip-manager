@@ -44,11 +44,14 @@ export async function POST(req: Request) {
   const courseName = parseCourseName(html)
   const teeOptions = parseTeeOptions(html)
   const selected = teeOptions[0]
-  const course = buildCourseDraft({
+  const course = {
+    ...buildCourseDraft({
     name: courseName,
     url: parsed.toString(),
     tee: selected,
-  })
+    }),
+    teeOptions: teeOptions.map((tee) => teeSummary(tee)),
+  }
   const warnings: string[] = []
 
   if (!teeOptions.length) {
@@ -62,7 +65,7 @@ export async function POST(req: Request) {
     course,
     teeOptions: teeOptions.map((tee) => ({
       ...tee,
-      course: buildCourseDraft({ name: courseName, url: parsed.toString(), tee }),
+      course: { ...buildCourseDraft({ name: courseName, url: parsed.toString(), tee }), teeOptions: teeOptions.map((option) => teeSummary(option)) },
     })),
     note: teeOptions.length
       ? `Imported ${teeOptions.length} tee option${teeOptions.length === 1 ? '' : 's'} from BlueGolf.`
@@ -71,12 +74,23 @@ export async function POST(req: Request) {
   })
 }
 
+function teeSummary(tee: TeeOption) {
+  return {
+    name: `${tee.name}${tee.gender ? ` (${tee.gender})` : ''}`,
+    gender: tee.gender,
+    rating: tee.rating,
+    slope: tee.slope,
+    yardage: tee.yardage,
+  }
+}
+
 function buildCourseDraft({ name, url, tee }: { name: string; url: string; tee?: TeeOption }): Partial<CourseDraft> {
   return {
     name,
     teeName: tee ? `${tee.name}${tee.gender ? ` (${tee.gender})` : ''}` : '',
     rating: tee?.rating ?? '',
     slope: tee?.slope ?? '',
+    teeOptions: tee ? undefined : [],
     holes: tee?.holes,
     source: 'bluegolf',
     blueGolfUrl: url,

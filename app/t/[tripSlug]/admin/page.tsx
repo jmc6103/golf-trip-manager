@@ -3,7 +3,7 @@ import { AdminControlRoom } from './admin-control-room'
 import { loginTripAdmin } from '@/app/actions'
 import { redirect } from 'next/navigation'
 import { createDefaultSetup } from '@/lib/trip-data'
-import { getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
+import { getAdminRole, getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
 import type { CourseDraft, TripSetupDraft } from '@/lib/types'
 
 export default async function AdminPage({
@@ -27,6 +27,7 @@ export default async function AdminPage({
   fallback.ownerEmail = query.ownerEmail ?? ''
   const initialSetup = detail ? setupFromDetail(detail) : fallback
   const canAdmin = trip ? await hasAdminAccess(tripSlug) : true
+  const adminRole = canAdmin ? await getAdminRole(tripSlug) : null
 
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">
@@ -42,7 +43,7 @@ export default async function AdminPage({
           formats: ['Setup underway'],
         }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} />
         {detail && !canAdmin ? <AdminLogin slug={tripSlug} error={query.adminError} /> : null}
-        {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} /> : null}
+        {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} adminRole={adminRole} /> : null}
       </div>
     </main>
   )
@@ -72,6 +73,7 @@ function setupFromDetail(trip: NonNullable<Awaited<ReturnType<typeof getTripDeta
       teeName: course.teeName ?? '',
       rating: course.rating == null ? '' : String(course.rating),
       slope: course.slope == null ? '' : String(course.slope),
+      teeOptions: parseTeeOptions(course.teeOptions),
       holes: course.holes.map((hole) => ({
         holeNumber: hole.holeNumber,
         par: hole.par,
@@ -83,6 +85,23 @@ function setupFromDetail(trip: NonNullable<Awaited<ReturnType<typeof getTripDeta
       blueGolfUrl: course.blueGolfUrl ?? undefined,
     })),
   }
+}
+
+function parseTeeOptions(value: unknown): CourseDraft['teeOptions'] {
+  if (!Array.isArray(value)) return undefined
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const name = typeof record.name === 'string' ? record.name : ''
+    if (!name) return []
+    return [{
+      name,
+      gender: typeof record.gender === 'string' ? record.gender : '',
+      rating: typeof record.rating === 'string' || typeof record.rating === 'number' ? String(record.rating) : '',
+      slope: typeof record.slope === 'string' || typeof record.slope === 'number' ? String(record.slope) : '',
+      yardage: typeof record.yardage === 'number' ? record.yardage : undefined,
+    }]
+  })
 }
 
 function AdminLogin({ slug, error }: { slug: string; error?: string }) {

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { createHash, randomBytes } from 'node:crypto'
-import type { CourseSource, RoundFormat, Trip, TripRole } from '@prisma/client'
+import type { CourseSource, Prisma, RoundFormat, Trip, TripRole } from '@prisma/client'
 import { getDb } from './db'
 import { buildDefaultHoles } from './trip-ops'
 import { createCoursesForSetup, formatOptions } from './trip-data'
@@ -18,6 +18,18 @@ export function hashToken(token: string) {
 
 export function adminPasswordCookieValue(passwordHash: string) {
   return `password:${passwordHash}`
+}
+
+const roleRank: Record<TripRole, number> = {
+  PLAYER: 0,
+  ADMIN: 1,
+  OWNER: 2,
+}
+
+export class AdminRoleError extends Error {
+  constructor(public readonly requiredRole: TripRole) {
+    super(`Requires ${requiredRole} access`)
+  }
 }
 
 export async function listTripSummaries(): Promise<TripSummary[]> {
@@ -68,6 +80,8 @@ export async function getTripDetail(slug: string) {
         orderBy: { roundNumber: 'asc' },
         include: {
           course: true,
+          playerTees: true,
+          submissions: true,
           matches: {
             orderBy: { matchNumber: 'asc' },
             include: {
@@ -110,6 +124,36 @@ export async function hasAdminAccess(slug: string, queryToken?: string) {
   if (!token) return false
   if (trip.adminTokenHash && hashToken(token) === trip.adminTokenHash) return true
   return Boolean(trip.adminPasswordHash && token === adminPasswordCookieValue(trip.adminPasswordHash))
+}
+
+export async function getAdminRole(slug: string): Promise<TripRole | null> {
+  if (!process.env.DATABASE_URL) return null
+
+  const db = getDb()
+  const trip = await db.trip.findUnique({
+    where: { slug },
+    select: { id: true, adminTokenHash: true, adminPasswordHash: true, adminIdentities: { select: { role: true } } },
+  })
+  if (!trip?.adminTokenHash && !trip?.adminPasswordHash) return null
+
+  const cookieStore = await cookies()
+  const token = cookieStore.get(adminCookieName(slug))?.value
+  if (!token) return null
+
+  if (trip.adminPasswordHash && token === adminPasswordCookieValue(trip.adminPasswordHash)) return 'OWNER'
+  if (trip.adminTokenHash && hashToken(token) === trip.adminTokenHash) {
+    const highestIdentity = trip.adminIdentities.reduce<TripRole | null>((highest, identity) => {
+      if (!highest || roleRank[identity.role] > roleRank[highest]) return identity.role
+      return highest
+    }, null)
+    return highestIdentity ?? 'OWNER'
+  }
+  return null
+}
+
+export async function requireRole(slug: string, minimum: TripRole): Promise<void> {
+  const role = await getAdminRole(slug)
+  if (!role || roleRank[role] < roleRank[minimum]) throw new AdminRoleError(minimum)
 }
 
 export async function setAdminCookie(slug: string, token: string) {
@@ -209,6 +253,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
           teeName: course.teeName || null,
           rating: parseNullableFloat(course.rating),
           slope: parseNullableInt(course.slope),
+          teeOptions: normalizeTeeOptions(course.teeOptions),
           totalPar: totalPar(course.holes),
           source: normalizeCourseSource(course.source),
           sourceId: course.sourceId || null,
@@ -219,6 +264,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
           teeName: course.teeName || null,
           rating: parseNullableFloat(course.rating),
           slope: parseNullableInt(course.slope),
+          teeOptions: normalizeTeeOptions(course.teeOptions),
           totalPar: totalPar(course.holes),
           source: normalizeCourseSource(course.source),
           sourceId: course.sourceId || null,
@@ -344,6 +390,17 @@ function parseNullableInt(value: string) {
 function totalPar(holes: TripSetupDraft['courses'][number]['holes']) {
   const source = holes?.length === 18 ? holes : buildDefaultHoles()
   return source.reduce((sum, hole) => sum + hole.par, 0)
+}
+
+function normalizeTeeOptions(options: TripSetupDraft['courses'][number]['teeOptions']): Prisma.InputJsonValue | undefined {
+  if (!options?.length) return undefined
+  return options.map((option) => ({
+    name: option.name,
+    gender: option.gender ?? '',
+    rating: option.rating,
+    slope: option.slope,
+    yardage: option.yardage ?? null,
+  }))
 }
 
 function normalizeRoundFormat(value: string): RoundFormat {

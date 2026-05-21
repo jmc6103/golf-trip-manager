@@ -130,6 +130,9 @@ model Trip {
   scores          HoleScore[]
   submissions     RoundSubmission[]
   invitations     Invitation[]
+  adminActions    AdminAction[]
+  handicapAdjustments HandicapAdjustment[]
+  notificationEvents  NotificationEvent[]
 
   @@index([status])
   @@index([createdAt])
@@ -179,6 +182,8 @@ model Player {
   matchAppearances MatchPlayer[]
   scores           HoleScore[]
   roundSubmissions RoundSubmission[]
+  roundTees        PlayerRoundTee[]
+  handicapAdjustments HandicapAdjustment[]
 
   @@unique([tripId, name])
   @@index([tripId])
@@ -229,6 +234,7 @@ model Course {
   source      CourseSource @default(MANUAL)
   sourceId    String?
   blueGolfUrl String?
+  teeOptions  Json?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -277,6 +283,7 @@ model Round {
   matches     Match[]
   scores      HoleScore[]
   submissions RoundSubmission[]
+  playerTees  PlayerRoundTee[]
 
   @@unique([tripId, roundNumber])
   @@index([tripId, dayNumber])
@@ -293,6 +300,8 @@ model Match {
   winningSide Int?
   holesUp     Int?
   holesLeft   Int?
+  voidedAt    DateTime?
+  voidReason  String?
   closedOutAt DateTime?
   finalizedAt DateTime?
   createdAt   DateTime     @default(now())
@@ -349,6 +358,7 @@ model HoleScore {
   net           Int?
   strokesGiven  Int      @default(0)
   stablefordPts Int?
+  overriddenByAdminAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -360,7 +370,62 @@ model HoleScore {
 
   @@unique([roundId, playerId, holeNumber])
   @@index([tripId])
+  @@index([roundId, playerId])
   @@index([matchId, holeNumber])
+}
+
+model PlayerRoundTee {
+  id       String @id @default(cuid())
+  playerId String
+  roundId  String
+  teeName  String
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  round  Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, roundId])
+  @@index([roundId])
+}
+
+model AdminAction {
+  id      String   @id @default(cuid())
+  tripId  String
+  adminId String?
+  action  String
+  payload Json
+  at      DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, at])
+}
+
+model HandicapAdjustment {
+  id        String   @id @default(cuid())
+  playerId  String
+  tripId    String
+  oldValue  Float
+  newValue  Float
+  reason    String
+  at        DateTime @default(now())
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, at])
+  @@index([playerId])
+}
+
+model NotificationEvent {
+  id        String   @id @default(cuid())
+  tripId    String
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, createdAt])
 }
 
 model RoundSubmission {

@@ -14,6 +14,8 @@ export function TeamBoard({ slug }: { slug: string }) {
   const [data, setData] = useState<TeamBoardData | null>(null)
   const [round, setRound] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [eventCursor, setEventCursor] = useState(() => new Date().toISOString())
+  const [toast, setToast] = useState('')
 
   async function load(quiet = false) {
     const query = round ? `?round=${round}` : ''
@@ -28,9 +30,23 @@ export function TeamBoard({ slug }: { slug: string }) {
 
   useEffect(() => {
     void load()
-    const timer = setInterval(() => load(true), 4000)
+    const timer = setInterval(() => pollEvents(), 4000)
     return () => clearInterval(timer)
-  }, [slug, round])
+  }, [slug, round, eventCursor])
+
+  async function pollEvents() {
+    const res = await fetch(`/t/${slug}/api/events?since=${encodeURIComponent(eventCursor)}`, { cache: 'no-store' })
+    if (!res.ok) {
+      await load(true)
+      return
+    }
+    const events: Array<{ type: string; createdAt: string; payload: unknown }> = await res.json()
+    if (!events.length) return
+    setEventCursor(events[events.length - 1].createdAt)
+    setToast(formatEvent(events[events.length - 1]))
+    setTimeout(() => setToast(''), 4000)
+    await load(true)
+  }
 
   if (!data) {
     return (
@@ -53,6 +69,7 @@ export function TeamBoard({ slug }: { slug: string }) {
             {data.teams.slice(0, 4).map((team) => <ScorePanel key={team.id} label={team.name} value={team.points} />)}
           </div>
         </section>
+        {toast ? <section className="rounded-[22px] bg-emerald-700 px-4 py-3 text-sm font-black text-white shadow-sm">{toast}</section> : null}
 
         <section className="grid grid-cols-3 gap-2 rounded-[24px] bg-white p-2 shadow-sm ring-1 ring-slate-200">
           {data.rounds.map((item) => (
@@ -89,6 +106,14 @@ export function TeamBoard({ slug }: { slug: string }) {
       </div>
     </main>
   )
+}
+
+function formatEvent(event: { type: string; payload: unknown }) {
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {}
+  if (event.type === 'ROUND_STARTED') return 'Round started.'
+  if (event.type === 'ROUND_FINAL') return 'Round finalized.'
+  if (event.type === 'MATCH_STATUS') return typeof payload.status === 'string' ? payload.status : 'Match status changed.'
+  return 'Trip update posted.'
 }
 
 function getLeader(teams: Array<{ name: string; points: number }>) {

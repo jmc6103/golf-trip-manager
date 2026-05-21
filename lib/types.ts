@@ -50,6 +50,7 @@ export type CourseDraft = {
   teeName: string
   rating: string
   slope: string
+  teeOptions?: Array<{ name: string; gender?: string; rating: string; slope: string; yardage?: number }>
   holes?: CourseHoleDraft[]
   source?: 'manual' | 'golfcourseapi' | 'bluegolf'
   sourceId?: string

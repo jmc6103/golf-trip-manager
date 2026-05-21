@@ -1,6 +1,6 @@
 import { getDb } from './db'
 import { formatLabel, getPlayerFromCookie } from './tenant-data'
-import { buildMatchStatus, buildScoreMap, calculateMatchHoleStatuses, calculateNetTotal, getMatchStrokeMap, type PlayerForScoring } from './scoring'
+import { buildMatchStatus, buildScoreMap, calculateMatchHoleStatuses, calculateNetTotal, getCourseTeeOptions, getMatchStrokeMap, getPlayerHandicap, type PlayerForScoring } from './scoring'
 import { ensureCourseHoles, isMatchPlayFormat, isTeamFormat } from './trip-ops'
 
 function byHole(a: { holeNumber: number }, b: { holeNumber: number }) {
@@ -74,6 +74,8 @@ export async function getTeamBoardData(slug: string, roundNumber?: number) {
         orderBy: { roundNumber: 'asc' },
         include: {
           course: { include: { holes: { orderBy: { holeNumber: 'asc' } } } },
+          playerTees: true,
+          submissions: true,
           scores: { include: { player: true } },
           matches: {
             orderBy: { matchNumber: 'asc' },
@@ -135,6 +137,8 @@ export async function getPlayerCardData(slug: string) {
         orderBy: { roundNumber: 'asc' },
         include: {
           course: { include: { holes: { orderBy: { holeNumber: 'asc' } } } },
+          playerTees: true,
+          submissions: true,
           scores: { include: { player: true } },
           matches: {
             orderBy: { matchNumber: 'asc' },
@@ -159,6 +163,8 @@ export async function getPlayerCardData(slug: string) {
   const match = round.matches.find((item) => item.sides.some((side) => side.players.some((entry) => entry.playerId === player.id)))
   const scoreMap = buildScoreMap(round.scores)
   const myScores = scoreMap[player.id] ?? {}
+  const myTee = round.playerTees.find((item) => item.playerId === player.id)?.teeName ?? null
+  const submittedAt = round.submissions.find((item) => item.playerId === player.id)?.submittedAt ?? null
 
   let matchTimeline = null
   let status = `${Object.keys(myScores).length} holes posted`
@@ -167,7 +173,7 @@ export async function getPlayerCardData(slug: string) {
   let strokeSummary: Record<number, { gets: number; gives: number; label: string }> = {}
 
   if (match) {
-    const sides = match.sides.map((side) => side.players.map((entry) => playerSummary(entry.player)))
+    const sides = match.sides.map((side) => side.players.map((entry) => playerCourseSummary(entry.player, round.course, round.playerTees.find((item) => item.playerId === entry.playerId)?.teeName)))
     const mySideIndex = match.sides.findIndex((side) => side.players.some((entry) => entry.playerId === player.id))
     const otherSide = match.sides.find((_, index) => index !== mySideIndex)
     partner = match.sides[mySideIndex]?.players.find((entry) => entry.playerId !== player.id)?.player
@@ -194,23 +200,23 @@ export async function getPlayerCardData(slug: string) {
     const strokeMap = getMatchStrokeMap(sides as PlayerForScoring[][], holes, round.format)
     strokeSummary = buildStrokeSummary({ holes, playerId: player.id, strokeMap, opponentIds: opponents.map((item) => item.id) })
   } else {
-    const strokeMap = getMatchStrokeMap([[playerSummary(player)]], holes, round.format)
+    const strokeMap = getMatchStrokeMap([[playerCourseSummary(player, round.course, myTee)]], holes, round.format)
     strokeSummary = buildStrokeSummary({ holes, playerId: player.id, strokeMap, opponentIds: [] })
   }
 
   return {
     trip: { slug: trip.slug, name: trip.name, scoreMax: trip.scoreMax },
-    player: { ...playerSummary(player), teamName: myTeam?.name ?? null },
+    player: { ...playerCourseSummary(player, round.course, myTee), teamName: myTeam?.name ?? null },
     partner: partner ? playerSummary(partner) : null,
     opponents,
     match: match ? { id: match.id, format: round.format, roundNumber: round.roundNumber } : { id: null, format: round.format, roundNumber: round.roundNumber },
     round: { id: round.id, roundNumber: round.roundNumber, name: round.name, format: round.format, formatLabel: formatLabel(round.format), status: round.status },
-    course: { id: round.course.id, name: round.course.name, teeName: round.course.teeName, rating: round.course.rating, slope: round.course.slope, holes },
+    course: { id: round.course.id, name: round.course.name, teeName: myTee ?? round.course.teeName, rating: round.course.rating, slope: round.course.slope, holes, teeOptions: getCourseTeeOptions(round.course) },
     myScores,
     strokeSummary,
     matchTimeline,
     status,
-    submittedAt: null,
+    submittedAt: submittedAt?.toISOString() ?? null,
     teamScoring: isTeamFormat(round.format),
   }
 }
@@ -232,8 +238,10 @@ function summarizeRound(round: any) {
     return {
       id: match.id,
       matchNumber: match.matchNumber,
+      voidedAt: match.voidedAt?.toISOString?.() ?? null,
+      voidReason: match.voidReason ?? null,
       format: round.format,
-      status,
+      status: match.voidedAt ? { ...status, label: `Voided - ${match.voidReason ?? 'No reason provided'}`, points: { sideOne: 0, sideTwo: 0 } } : status,
       sides: match.sides.map((side: any, index: number) => ({
         id: side.id,
         sideIndex: side.sideIndex,
@@ -297,6 +305,10 @@ function buildStrokeSummary(params: {
 
 function countStrokes(strokeHoles: number[], holeNumber: number) {
   return strokeHoles.filter((number) => number === holeNumber).length
+}
+
+function playerCourseSummary(player: { id: string; name: string; handicap: number | null }, course: Parameters<typeof getPlayerHandicap>[1], teeName?: string | null) {
+  return { id: player.id, name: player.name, handicap: getPlayerHandicap(player.handicap, course, teeName) }
 }
 
 function formatTrend(value: number, isSideOne: boolean) {

@@ -38,6 +38,8 @@ export function PlayerScorecard({ slug }: { slug: string }) {
   const [activeHoleIndex, setActiveHoleIndex] = useState(0)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const [message, setMessage] = useState('')
+  const [eventCursor, setEventCursor] = useState(() => new Date().toISOString())
+  const [toast, setToast] = useState('')
 
   async function load(quiet = false) {
     if (!quiet) setLoading(true)
@@ -49,9 +51,23 @@ export function PlayerScorecard({ slug }: { slug: string }) {
 
   useEffect(() => {
     void load()
-    const timer = setInterval(() => load(true), 5000)
+    const timer = setInterval(() => pollEvents(), 5000)
     return () => clearInterval(timer)
-  }, [slug])
+  }, [slug, eventCursor])
+
+  async function pollEvents() {
+    const res = await fetch(`/t/${slug}/api/events?since=${encodeURIComponent(eventCursor)}`, { cache: 'no-store' })
+    if (!res.ok) {
+      await load(true)
+      return
+    }
+    const events: Array<{ type: string; createdAt: string; payload: unknown }> = await res.json()
+    if (!events.length) return
+    setEventCursor(events[events.length - 1].createdAt)
+    setToast(formatEvent(events[events.length - 1]))
+    setTimeout(() => setToast(''), 4000)
+    await load(true)
+  }
 
   async function submitScore(holeNumber: number, gross: number) {
     setSavingHole(holeNumber)
@@ -124,6 +140,7 @@ export function PlayerScorecard({ slug }: { slug: string }) {
             </div>
           </div>
         </section>
+        {toast ? <section className="rounded-[22px] bg-emerald-700 px-4 py-3 text-sm font-black text-white shadow-sm">{toast}</section> : null}
 
         {data.matchTimeline ? <MatchTracker timeline={data.matchTimeline} /> : null}
 
@@ -163,6 +180,14 @@ export function PlayerScorecard({ slug }: { slug: string }) {
       </div>
     </main>
   )
+}
+
+function formatEvent(event: { type: string; payload: unknown }) {
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {}
+  if (event.type === 'ROUND_STARTED') return 'Round started.'
+  if (event.type === 'ROUND_FINAL') return 'Round finalized.'
+  if (event.type === 'MATCH_STATUS') return typeof payload.status === 'string' ? payload.status : 'Match status changed.'
+  return 'Trip update posted.'
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

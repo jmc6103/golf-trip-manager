@@ -1,5 +1,6 @@
 import type { RoundFormat, TeamColor } from '@prisma/client'
 import { getDb } from './db'
+import { maxScoreForHole } from './scoring'
 
 type PlayerSeed = {
   id: string
@@ -134,16 +135,143 @@ export async function startRound(slug: string, roundId: string) {
   const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
   if (!trip) throw new Error('Trip not found.')
 
-  await db.round.updateMany({ where: { tripId: trip.id, status: 'LIVE' }, data: { status: 'NOT_STARTED' } })
-  await db.round.update({ where: { id: roundId }, data: { status: 'LIVE', startedAt: new Date() } })
-  await db.trip.update({ where: { id: trip.id }, data: { status: 'LIVE' } })
+  await db.$transaction([
+    db.round.updateMany({ where: { tripId: trip.id, status: 'LIVE' }, data: { status: 'NOT_STARTED' } }),
+    db.round.update({ where: { id: roundId }, data: { status: 'LIVE', startedAt: new Date() } }),
+    db.trip.update({ where: { id: trip.id }, data: { status: 'LIVE' } }),
+    db.notificationEvent.create({ data: { tripId: trip.id, type: 'ROUND_STARTED', payload: { roundId } } }),
+  ])
 }
 
 export async function finalizeRound(slug: string, roundId: string) {
   const db = getDb()
   const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
   if (!trip) throw new Error('Trip not found.')
-  await db.round.update({ where: { id: roundId }, data: { status: 'FINAL', finalizedAt: new Date() } })
+  await db.$transaction([
+    db.round.update({ where: { id: roundId }, data: { status: 'FINAL', finalizedAt: new Date() } }),
+    db.notificationEvent.create({ data: { tripId: trip.id, type: 'ROUND_FINAL', payload: { roundId } } }),
+  ])
+}
+
+export async function voidMatch(slug: string, matchId: string, reason: string) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
+  if (!trip) throw new Error('Trip not found.')
+  const match = await db.match.findFirst({ where: { id: matchId, tripId: trip.id }, select: { id: true, roundId: true, matchNumber: true } })
+  if (!match) throw new Error('Match not found.')
+
+  await db.$transaction([
+    db.match.update({ where: { id: match.id }, data: { voidedAt: new Date(), voidReason: reason || 'Voided by admin' } }),
+    db.adminAction.create({ data: { tripId: trip.id, action: 'void-match', payload: { matchId: match.id, roundId: match.roundId, matchNumber: match.matchNumber, reason } } }),
+  ])
+}
+
+export async function overrideScore(slug: string, params: { playerId: string; roundId: string; holeNumber: number; gross: number; reason: string }) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
+  if (!trip) throw new Error('Trip not found.')
+  const round = await db.round.findFirst({
+    where: { id: params.roundId, tripId: trip.id },
+    include: { course: { include: { holes: true } }, matches: { include: { sides: { include: { players: true } } } } },
+  })
+  if (!round) throw new Error('Round not found.')
+  const hole = round.course?.holes.find((item) => item.holeNumber === params.holeNumber)
+  if (!hole) throw new Error('Hole not found.')
+  const oldScore = await db.holeScore.findUnique({
+    where: { roundId_playerId_holeNumber: { roundId: params.roundId, playerId: params.playerId, holeNumber: params.holeNumber } },
+    select: { gross: true },
+  })
+  const match = round.matches.find((item) => item.sides.some((side) => side.players.some((entry) => entry.playerId === params.playerId)))
+
+  await db.$transaction([
+    db.holeScore.upsert({
+      where: { roundId_playerId_holeNumber: { roundId: params.roundId, playerId: params.playerId, holeNumber: params.holeNumber } },
+      create: {
+        tripId: trip.id,
+        roundId: params.roundId,
+        matchId: match?.id ?? null,
+        holeId: hole.id,
+        playerId: params.playerId,
+        holeNumber: params.holeNumber,
+        gross: params.gross,
+        overriddenByAdminAt: new Date(),
+      },
+      update: { gross: params.gross, matchId: match?.id ?? null, holeId: hole.id, overriddenByAdminAt: new Date() },
+    }),
+    db.adminAction.create({
+      data: {
+        tripId: trip.id,
+        action: 'override-score',
+        payload: { playerId: params.playerId, roundId: params.roundId, holeNumber: params.holeNumber, oldGross: oldScore?.gross ?? null, newGross: params.gross, reason: params.reason },
+      },
+    }),
+  ])
+}
+
+export async function forceFinalizeRound(slug: string, roundId: string) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, include: { players: true } })
+  if (!trip) throw new Error('Trip not found.')
+  const round = await db.round.findFirst({
+    where: { id: roundId, tripId: trip.id },
+    include: {
+      course: { include: { holes: true } },
+      matches: { include: { sides: { include: { players: true } } } },
+      scores: true,
+    },
+  })
+  if (!round?.course) throw new Error('Round course not found.')
+
+  const playerIds = new Set(round.matches.flatMap((match) => match.sides.flatMap((side) => side.players.map((entry) => entry.playerId))))
+  if (!playerIds.size) trip.players.forEach((player) => playerIds.add(player.id))
+  const existing = new Set(round.scores.map((score) => `${score.playerId}:${score.holeNumber}`))
+  const data = [...playerIds].flatMap((playerId) =>
+    round.course!.holes
+      .filter((hole) => !existing.has(`${playerId}:${hole.holeNumber}`))
+      .map((hole) => ({
+        tripId: trip.id,
+        roundId: round.id,
+        matchId: round.matches.find((match) => match.sides.some((side) => side.players.some((entry) => entry.playerId === playerId)))?.id ?? null,
+        holeId: hole.id,
+        playerId,
+        holeNumber: hole.holeNumber,
+        gross: maxScoreForHole(hole.par, trip.scoreMax),
+        overriddenByAdminAt: new Date(),
+      }))
+  )
+
+  await db.$transaction([
+    ...(data.length ? [db.holeScore.createMany({ data, skipDuplicates: true })] : []),
+    db.round.update({ where: { id: round.id }, data: { status: 'FINAL', finalizedAt: new Date() } }),
+    db.adminAction.create({ data: { tripId: trip.id, action: 'force-finalize', payload: { roundId: round.id, insertedScores: data.length } } }),
+    db.notificationEvent.create({ data: { tripId: trip.id, type: 'ROUND_FINAL', payload: { roundId: round.id, forced: true } } }),
+  ])
+}
+
+export async function emergencyWipe(slug: string) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
+  if (!trip) throw new Error('Trip not found.')
+  await db.$transaction([
+    db.holeScore.deleteMany({ where: { tripId: trip.id } }),
+    db.round.updateMany({ where: { tripId: trip.id }, data: { status: 'NOT_STARTED', startedAt: null, finalizedAt: null } }),
+    db.adminAction.create({ data: { tripId: trip.id, action: 'emergency-wipe', payload: { scope: 'scores-and-round-status' } } }),
+  ])
+}
+
+export async function adjustHandicap(slug: string, playerId: string, newValue: number, reason: string) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
+  if (!trip) throw new Error('Trip not found.')
+  const player = await db.player.findFirst({ where: { id: playerId, tripId: trip.id }, select: { id: true, handicap: true } })
+  if (!player) throw new Error('Player not found.')
+  const oldValue = player.handicap ?? 0
+
+  await db.$transaction([
+    db.player.update({ where: { id: player.id }, data: { handicap: newValue } }),
+    db.handicapAdjustment.create({ data: { tripId: trip.id, playerId: player.id, oldValue, newValue, reason } }),
+    db.adminAction.create({ data: { tripId: trip.id, action: 'adjust-handicap', payload: { playerId: player.id, oldValue, newValue, reason } } }),
+  ])
 }
 
 async function createTeamRoundMatches(

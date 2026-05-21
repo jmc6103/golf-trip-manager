@@ -11,22 +11,27 @@ type AdminTrip = {
   teamMethod: string
   pairingMethod: string
   players: Array<{ id: string; name: string; handicap: number | null }>
-  courses: Array<{ id: string; name: string; dayNumber: number }>
+  courses: Array<{ id: string; name: string; dayNumber: number; teeName: string | null; rating: number | null; slope: number | null; teeOptions: unknown }>
   teams: Array<{ id: string; name: string; players: Array<{ playerId: string; player: { id: string; name: string; handicap: number | null } }> }>
   rounds: Array<{
     id: string
     roundNumber: number
     format: string
     status: string
+    courseId: string | null
+    submissions: Array<{ playerId: string; submittedAt: Date | string }>
+    playerTees: Array<{ playerId: string; teeName: string }>
     matches: Array<{
       id: string
       matchNumber: number
+      voidedAt: Date | string | null
+      voidReason: string | null
       sides: Array<{ id: string; label: string | null; team: { name: string } | null; players: Array<{ playerId: string; player: { id: string; name: string } }> }>
     }>
   }>
 }
 
-export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin: boolean }) {
+export function AdminControlRoom({ trip, canAdmin, adminRole }: { trip: AdminTrip; canAdmin: boolean; adminRole: string | null }) {
   const router = useRouter()
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -146,6 +151,31 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
             <div key={round.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
               <p className="font-black">Round {round.roundNumber} — {round.format.replace(/_/g, ' ')}</p>
               <p className="text-sm font-semibold text-slate-500">{round.status.replace(/_/g, ' ')}</p>
+              <div className="mt-3 space-y-2">
+                {trip.players.map((player) => {
+                  const submitted = round.submissions.some((submission) => submission.playerId === player.id)
+                  const course = trip.courses.find((item) => item.id === round.courseId)
+                  const teeOptions = course ? getTeeOptions(course) : []
+                  const currentTee = round.playerTees.find((tee) => tee.playerId === player.id)?.teeName ?? course?.teeName ?? ''
+                  return (
+                    <div key={player.id} className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black">{player.name}</p>
+                        {submitted ? <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Submitted</p> : <p className="text-xs font-semibold text-slate-500">Open scorecard</p>}
+                      </div>
+                      {teeOptions.length > 1 ? (
+                        <select
+                          value={currentTee}
+                          onChange={(event) => mutate({ type: 'player-tee', playerId: player.id, roundId: round.id, teeName: event.target.value }, 'PATCH')}
+                          className="max-w-36 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold"
+                        >
+                          {teeOptions.map((tee) => <option key={tee.name} value={tee.name}>{tee.name}</option>)}
+                        </select>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <button onClick={() => mutate({ action: 'start-round', roundId: round.id })} className="rounded-xl bg-emerald-600 px-3 py-3 text-sm font-black text-white">Start</button>
                 <button onClick={() => mutate({ action: 'finalize-round', roundId: round.id })} className="rounded-xl bg-amber-500 px-3 py-3 text-sm font-black text-white">Final</button>
@@ -180,8 +210,90 @@ export function AdminControlRoom({ trip, canAdmin }: { trip: AdminTrip; canAdmin
           ) : null}
         </div>
       </section>
+
+      <BreakGlassSection trip={trip} isOwner={adminRole === 'OWNER'} mutate={mutate} />
     </section>
   )
+}
+
+function BreakGlassSection({ trip, isOwner, mutate }: { trip: AdminTrip; isOwner: boolean; mutate: (body: unknown, method?: string) => void }) {
+  const [voidReason, setVoidReason] = useState('')
+  const [override, setOverride] = useState({ roundId: trip.rounds[0]?.id ?? '', playerId: trip.players[0]?.id ?? '', holeNumber: '1', gross: '5', reason: '' })
+  const [handicap, setHandicap] = useState({ playerId: trip.players[0]?.id ?? '', newValue: '', reason: '' })
+
+  return (
+    <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <SectionTitle title="Break Glass" />
+      {!isOwner ? <p className="mt-2 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-100">Owner access is required for these tools.</p> : null}
+      <div className="mt-3 space-y-3">
+        <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Void Match</p>
+          <input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Reason" />
+          <div className="mt-2 space-y-2">
+            {trip.rounds.flatMap((round) => round.matches.map((match) => (
+              <button key={match.id} disabled={!isOwner || Boolean(match.voidedAt)} onClick={() => mutate({ action: 'void-match', matchId: match.id, reason: voidReason })} className="w-full rounded-xl bg-white px-3 py-2 text-left text-sm font-black text-rose-700 ring-1 ring-slate-200 disabled:opacity-40">
+                R{round.roundNumber} Match {match.matchNumber}{match.voidedAt ? ' - voided' : ''}
+              </button>
+            )))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Override Score</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <select value={override.roundId} onChange={(event) => setOverride({ ...override, roundId: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold">
+              {trip.rounds.map((round) => <option key={round.id} value={round.id}>Round {round.roundNumber}</option>)}
+            </select>
+            <select value={override.playerId} onChange={(event) => setOverride({ ...override, playerId: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold">
+              {trip.players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
+            </select>
+            <input value={override.holeNumber} onChange={(event) => setOverride({ ...override, holeNumber: event.target.value })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Hole" inputMode="numeric" />
+            <input value={override.gross} onChange={(event) => setOverride({ ...override, gross: event.target.value })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Gross" inputMode="numeric" />
+          </div>
+          <input value={override.reason} onChange={(event) => setOverride({ ...override, reason: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Reason" />
+          <button disabled={!isOwner} onClick={() => mutate({ action: 'override-score', ...override, holeNumber: Number(override.holeNumber), gross: Number(override.gross) })} className="mt-2 w-full rounded-xl bg-slate-950 px-3 py-3 text-sm font-black text-white disabled:opacity-40">Save Override</button>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Round Rescue</p>
+          <div className="mt-2 grid grid-cols-1 gap-2">
+            {trip.rounds.map((round) => (
+              <button key={round.id} disabled={!isOwner} onClick={() => mutate({ action: 'force-finalize', roundId: round.id })} className="rounded-xl bg-amber-500 px-3 py-3 text-sm font-black text-white disabled:opacity-40">
+                Force Finalize Round {round.roundNumber}
+              </button>
+            ))}
+            <button disabled={!isOwner} onClick={() => window.confirm('Delete all scores and reset all rounds?') && mutate({ action: 'emergency-wipe' })} className="rounded-xl bg-red-600 px-3 py-3 text-sm font-black text-white disabled:opacity-40">
+              Emergency Wipe Scores
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Adjust Handicap</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <select value={handicap.playerId} onChange={(event) => setHandicap({ ...handicap, playerId: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold">
+              {trip.players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
+            </select>
+            <input value={handicap.newValue} onChange={(event) => setHandicap({ ...handicap, newValue: event.target.value })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="New HCP" inputMode="decimal" />
+          </div>
+          <input value={handicap.reason} onChange={(event) => setHandicap({ ...handicap, reason: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Reason" />
+          <button disabled={!isOwner} onClick={() => mutate({ action: 'adjust-handicap', playerId: handicap.playerId, newValue: Number(handicap.newValue), reason: handicap.reason })} className="mt-2 w-full rounded-xl bg-slate-950 px-3 py-3 text-sm font-black text-white disabled:opacity-40">Save Handicap</button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function getTeeOptions(course: AdminTrip['courses'][number]) {
+  const options = Array.isArray(course.teeOptions)
+    ? course.teeOptions.flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const name = (item as Record<string, unknown>).name
+        return typeof name === 'string' && name.trim() ? [{ name }] : []
+      })
+    : []
+  if (course.teeName && !options.some((tee) => tee.name === course.teeName)) return [{ name: course.teeName }, ...options]
+  return options
 }
 
 function getReadiness(trip: AdminTrip) {
