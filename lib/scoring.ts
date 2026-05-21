@@ -1,3 +1,5 @@
+import { getFormat } from './formats'
+
 export type HoleForScoring = {
   holeNumber: number
   par: number
@@ -55,10 +57,13 @@ export function maxScoreForHole(par: number, scoreMax: string) {
   return 20
 }
 
-export function allowanceForFormat(format: string) {
-  if (format === 'FOUR_BALL') return 0.9
-  if (format === 'STROKE_BLIND') return 0.95
-  return 1
+/** Returns the handicap allowance fraction for a format, optionally overridden by a round-level value. */
+export function allowanceForFormat(format: string, roundAllowance?: number): number {
+  // roundAllowance is stored as integer percentage (e.g. 90 = 90% = 0.90).
+  // A value of 100 may be the legacy default before per-round config was wired;
+  // fall back to the format module's default in that case.
+  if (roundAllowance != null && roundAllowance !== 100) return roundAllowance / 100
+  return getFormat(format).handicapAllowance
 }
 
 export function getPlayerHandicap(playerHandicap: number | null | undefined, course?: CourseForHandicap | null, teeNameOverride?: string | null) {
@@ -116,12 +121,18 @@ export function buildScoreMap(scores: ScoreForScoring[]) {
   return map
 }
 
-export function getMatchStrokeMap(sides: PlayerForScoring[][], holes: HoleForScoring[], format: string) {
+export function getMatchStrokeMap(
+  sides: PlayerForScoring[][],
+  holes: HoleForScoring[],
+  format: string,
+  /** Optional override in fraction form (e.g. 0.9). Pass round.handicapAllowance / 100. */
+  handicapAllowance?: number,
+) {
   const allPlayers = sides.flat()
   if (!allPlayers.length) return {}
 
   const lowHandicap = Math.min(...allPlayers.map((player) => player.handicap))
-  const allowance = allowanceForFormat(format)
+  const allowance = handicapAllowance ?? allowanceForFormat(format)
 
   return Object.fromEntries(
     allPlayers.map((player) => [
@@ -144,10 +155,17 @@ export function calculateMatchHoleStatuses(params: {
   sideTwoPlayers: PlayerForScoring[]
   scores: ScoreForScoring[]
   format: string
+  /** Optional round-level handicap allowance override as a fraction (e.g. 0.9). */
+  handicapAllowance?: number
 }) {
   const scoreMap = buildScoreMap(params.scores)
-  const strokeMap = getMatchStrokeMap([params.sideOnePlayers, params.sideTwoPlayers], params.holes, params.format)
-  const sideScoring = params.format === 'FOUR_BALL' || params.format === 'SCRAMBLE' || params.format === 'SHAMBLE' ? 'BEST_SIDE' : 'SINGLES'
+  const strokeMap = getMatchStrokeMap(
+    [params.sideOnePlayers, params.sideTwoPlayers],
+    params.holes,
+    params.format,
+    params.handicapAllowance,
+  )
+  const sideScoring = getFormat(params.format).sideScoring
   let sideOneUp = 0
 
   return [...params.holes].sort((a, b) => a.holeNumber - b.holeNumber).map((hole): MatchHoleStatus => {

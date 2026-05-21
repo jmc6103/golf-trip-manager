@@ -1,4 +1,5 @@
 import type { FormatOption, TripLink, TripSetupDraft, TripSummary, TripTemplateId } from './types'
+import { formatRegistry } from './formats'
 
 export const trips: TripSummary[] = [
   {
@@ -56,50 +57,12 @@ export function getTripLinks(slug: string): TripLink[] {
   ]
 }
 
-export const formatOptions: FormatOption[] = [
-  {
-    id: 'FOUR_BALL',
-    name: '2v2 Best Ball / Four-Ball',
-    description: 'Each player plays their ball. Side uses the better net score on each hole.',
-    matchPlay: true,
-  },
-  {
-    id: 'SINGLES',
-    name: 'Singles Match Play',
-    description: 'One player vs one player, hole by hole.',
-    matchPlay: true,
-  },
-  {
-    id: 'STROKE_BLIND',
-    name: 'Individual Stroke Play + Blind Matches',
-    description: 'Players post full rounds, then hidden head-to-head results are revealed.',
-    matchPlay: false,
-  },
-  {
-    id: 'ALT_SHOT',
-    name: 'Alternate Shot / Foursomes',
-    description: 'Partners alternate shots on one team ball.',
-    matchPlay: true,
-  },
-  {
-    id: 'SCRAMBLE',
-    name: 'Scramble',
-    description: 'Team chooses the best shot and everyone plays from there.',
-    matchPlay: false,
-  },
-  {
-    id: 'SHAMBLE',
-    name: 'Shamble',
-    description: 'Team picks the best drive, then each player finishes their own ball.',
-    matchPlay: false,
-  },
-  {
-    id: 'STABLEFORD',
-    name: 'Stableford',
-    description: 'Players earn points per hole instead of counting total strokes.',
-    matchPlay: false,
-  },
-]
+export const formatOptions: FormatOption[] = Object.values(formatRegistry).map((mod) => ({
+  id: mod.format,
+  name: mod.label,
+  description: mod.description,
+  matchPlay: mod.isMatchPlay,
+}))
 
 export const tripTemplates: Array<{
   id: TripTemplateId

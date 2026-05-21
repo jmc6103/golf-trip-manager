@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
+import type { SandbaggerRow } from '@/lib/trip-view-data'
 
 type AdminTrip = {
   slug: string
@@ -31,7 +32,7 @@ type AdminTrip = {
   }>
 }
 
-export function AdminControlRoom({ trip, canAdmin, adminRole }: { trip: AdminTrip; canAdmin: boolean; adminRole: string | null }) {
+export function AdminControlRoom({ trip, canAdmin, adminRole, sandbaggerData = [] }: { trip: AdminTrip; canAdmin: boolean; adminRole: string | null; sandbaggerData?: SandbaggerRow[] }) {
   const router = useRouter()
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -212,6 +213,7 @@ export function AdminControlRoom({ trip, canAdmin, adminRole }: { trip: AdminTri
       </section>
 
       <BreakGlassSection trip={trip} isOwner={adminRole === 'OWNER'} mutate={mutate} />
+      {sandbaggerData.length > 0 ? <HandicapIntegritySection rows={sandbaggerData} mutate={mutate} players={trip.players} isOwner={adminRole === 'OWNER'} /> : null}
     </section>
   )
 }
@@ -367,6 +369,85 @@ function ManualSide({
       </div>
       <button onClick={() => onSave(selected)} className="mt-2 w-full rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save Side</button>
     </div>
+  )
+}
+
+function HandicapIntegritySection({
+  rows,
+  mutate,
+  players,
+  isOwner,
+}: {
+  rows: SandbaggerRow[]
+  mutate: (body: unknown, method?: string) => void
+  players: AdminTrip['players']
+  isOwner: boolean
+}) {
+  const [adjusting, setAdjusting] = useState<string | null>(null)
+  const [newValue, setNewValue] = useState('')
+  const [reason, setReason] = useState('')
+
+  const flagColors: Record<string, string> = {
+    SANDBAGGER: 'text-rose-700 bg-rose-50 ring-rose-100',
+    SOUNDS_ABOUT_RIGHT: 'text-emerald-700 bg-emerald-50 ring-emerald-100',
+    BUM: 'text-amber-700 bg-amber-50 ring-amber-100',
+  }
+  const flagLabels: Record<string, string> = {
+    SANDBAGGER: 'Sandbagger',
+    SOUNDS_ABOUT_RIGHT: 'Legit',
+    BUM: 'Bum',
+  }
+
+  return (
+    <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <SectionTitle title="Handicap Integrity" />
+      <p className="mt-1 text-xs text-slate-400">USGA frequency analysis for all finalized rounds.</p>
+      <div className="mt-3 space-y-2">
+        {rows.map((row) => (
+          <div key={`${row.playerId}-${row.roundId}`} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-black">{row.playerName}</p>
+                <p className="text-xs text-slate-500">{row.roundName} · HCP {row.handicap} · Gross {row.grossTotal} ({row.holesPlayed}H)</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-black ring-1 ${flagColors[row.flag] ?? 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+                {flagLabels[row.flag] ?? row.flag}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-white p-2 ring-1 ring-slate-200">
+                <p className="text-xs text-slate-400">Net Δ</p>
+                <p className="font-black">{row.netDelta > 0 ? `+${row.netDelta}` : row.netDelta}</p>
+              </div>
+              <div className="rounded-xl bg-white p-2 ring-1 ring-slate-200">
+                <p className="text-xs text-slate-400">1-in</p>
+                <p className="font-black">{row.odds ? Math.round(row.odds) : '—'}</p>
+              </div>
+              <div className="rounded-xl bg-white p-2 ring-1 ring-slate-200">
+                <p className="text-xs text-slate-400">Band</p>
+                <p className="font-black">{row.handicapBand ?? '—'}</p>
+              </div>
+            </div>
+            {row.flag === 'SANDBAGGER' ? (
+              adjusting === `${row.playerId}-${row.roundId}` ? (
+                <div className="mt-2 space-y-2">
+                  <input value={newValue} onChange={(e) => setNewValue(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="New handicap" inputMode="decimal" />
+                  <input value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" placeholder="Reason" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setAdjusting(null)} className="rounded-xl bg-slate-200 px-3 py-2 text-sm font-black text-slate-700">Cancel</button>
+                    <button disabled={!isOwner || !newValue} onClick={() => { mutate({ action: 'adjust-handicap', playerId: row.playerId, newValue: Number(newValue), reason }); setAdjusting(null) }} className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-black text-white disabled:opacity-40">Adjust</button>
+                  </div>
+                </div>
+              ) : (
+                <button disabled={!isOwner} onClick={() => { setAdjusting(`${row.playerId}-${row.roundId}`); setNewValue(String(row.handicap)); setReason('') }} className="mt-2 w-full rounded-xl bg-rose-50 px-3 py-2 text-sm font-black text-rose-700 ring-1 ring-rose-100 disabled:opacity-40">
+                  Adjust Handicap
+                </button>
+              )
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

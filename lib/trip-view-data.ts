@@ -1,7 +1,9 @@
 import { getDb } from './db'
 import { formatLabel, getPlayerFromCookie } from './tenant-data'
-import { buildMatchStatus, buildScoreMap, calculateMatchHoleStatuses, calculateNetTotal, getCourseTeeOptions, getMatchStrokeMap, getPlayerHandicap, type PlayerForScoring } from './scoring'
+import { allowanceForFormat, buildMatchStatus, buildScoreMap, calculateMatchHoleStatuses, calculateNetTotal, getCourseTeeOptions, getMatchStrokeMap, getPlayerHandicap, getStrokeHoles, type PlayerForScoring } from './scoring'
 import { ensureCourseHoles, isMatchPlayFormat, isTeamFormat } from './trip-ops'
+import { getFormat } from './formats'
+import { getNetDifferential, getSandbaggerFlag, getUSGAOdds, type SandbaggerFlag } from './sandbagger'
 
 function byHole(a: { holeNumber: number }, b: { holeNumber: number }) {
   return a.holeNumber - b.holeNumber
@@ -98,7 +100,7 @@ export async function getTeamBoardData(slug: string, roundNumber?: number) {
     trip.rounds.find((round) => round.status === 'LIVE') ??
     trip.rounds[0]
   const roundSummaries = trip.rounds.sort(byRound).map((round) => summarizeRound(round))
-  const totalPoints = roundSummaries.reduce<Record<string, number>>((sum, round) => {
+  const totalPoints = roundSummaries.filter((round) => round.status === 'FINAL').reduce<Record<string, number>>((sum, round) => {
     for (const [teamId, points] of Object.entries(round.pointsByTeam)) {
       sum[teamId] = (sum[teamId] ?? 0) + points
     }
@@ -178,12 +180,14 @@ export async function getPlayerCardData(slug: string) {
     const otherSide = match.sides.find((_, index) => index !== mySideIndex)
     partner = match.sides[mySideIndex]?.players.find((entry) => entry.playerId !== player.id)?.player
     opponents = otherSide?.players.map((entry) => playerSummary(entry.player)) ?? []
+    const roundAllowance = allowanceForFormat(round.format, round.handicapAllowance)
     const holeStatuses = calculateMatchHoleStatuses({
       holes,
       sideOnePlayers: sides[0] ?? [],
       sideTwoPlayers: sides[1] ?? [],
       scores: match.scores,
       format: round.format,
+      handicapAllowance: roundAllowance,
     })
     const matchStatus = buildMatchStatus(holeStatuses, sideLabel(match.sides[0], 'Side 1'), sideLabel(match.sides[1], 'Side 2'))
     status = matchStatus.label
@@ -197,10 +201,11 @@ export async function getPlayerCardData(slug: string) {
       })),
     }
 
-    const strokeMap = getMatchStrokeMap(sides as PlayerForScoring[][], holes, round.format)
+    const strokeMap = getMatchStrokeMap(sides as PlayerForScoring[][], holes, round.format, roundAllowance)
     strokeSummary = buildStrokeSummary({ holes, playerId: player.id, strokeMap, opponentIds: opponents.map((item) => item.id) })
   } else {
-    const strokeMap = getMatchStrokeMap([[playerCourseSummary(player, round.course, myTee)]], holes, round.format)
+    const roundAllowance = allowanceForFormat(round.format, round.handicapAllowance)
+    const strokeMap = getMatchStrokeMap([[playerCourseSummary(player, round.course, myTee)]], holes, round.format, roundAllowance)
     strokeSummary = buildStrokeSummary({ holes, playerId: player.id, strokeMap, opponentIds: [] })
   }
 
@@ -224,6 +229,9 @@ export async function getPlayerCardData(slug: string) {
 function summarizeRound(round: any) {
   const holes = round.course?.holes ?? []
   const scoreMap = buildScoreMap(round.scores ?? [])
+  const fmt = getFormat(round.format)
+  const roundAllowance = allowanceForFormat(round.format, round.handicapAllowance)
+
   const matchCards = round.matches.map((match: any) => {
     const sides = match.sides.map((side: any) => side.players.map((entry: any) => playerSummary(entry.player)))
     const holeStatuses = calculateMatchHoleStatuses({
@@ -232,6 +240,7 @@ function summarizeRound(round: any) {
       sideTwoPlayers: sides[1] ?? [],
       scores: match.scores,
       format: round.format,
+      handicapAllowance: roundAllowance,
     })
     const status = buildMatchStatus(holeStatuses, sideLabel(match.sides[0], 'Side 1'), sideLabel(match.sides[1], 'Side 2'))
 
@@ -264,10 +273,12 @@ function summarizeRound(round: any) {
   const rows = players.map((player: any) => {
     const scores = scoreMap[player.id] ?? {}
     const gross = Object.values(scores).reduce<number>((sum, score) => sum + score, 0)
+    const strokeHoles = getStrokeHoles(Math.round((player.handicap ?? 0) * roundAllowance), holes)
+    const net = calculateNetTotal(scores, strokeHoles)
     return {
       player: playerSummary(player),
       gross: Object.keys(scores).length ? gross : null,
-      net: Object.keys(scores).length ? calculateNetTotal(scores, []) : null,
+      net: Object.keys(scores).length ? net : null,
       holesPlayed: Object.keys(scores).length,
     }
   })
@@ -282,9 +293,10 @@ function summarizeRound(round: any) {
     course: round.course ? { name: round.course.name, teeName: round.course.teeName, rating: round.course.rating, slope: round.course.slope } : null,
     matchPlay: isMatchPlayFormat(round.format),
     teamScoring: isTeamFormat(round.format),
+    leaderboardType: fmt.leaderboardType,
     pointsByTeam,
     matchCards,
-    leaderboard: rows.sort((a, b) => (a.gross == null ? 1 : b.gross == null ? -1 : a.gross - b.gross)),
+    leaderboard: rows.sort((a, b) => (a.net == null ? 1 : b.net == null ? -1 : a.net - b.net)),
   }
 }
 
@@ -315,4 +327,81 @@ function formatTrend(value: number, isSideOne: boolean) {
   const sideValue = isSideOne ? value : -value
   if (sideValue === 0) return 'T'
   return sideValue > 0 ? `+${sideValue}` : `${sideValue}`
+}
+
+export type SandbaggerRow = {
+  playerId: string
+  playerName: string
+  handicap: number
+  roundId: string
+  roundName: string
+  grossTotal: number
+  holesPlayed: number
+  netDelta: number
+  odds: number | null
+  probability: number | null
+  handicapBand: string | null
+  flag: SandbaggerFlag
+}
+
+export async function getSandbaggerData(slug: string): Promise<SandbaggerRow[]> {
+  const db = getDb()
+  const trip = await db.trip.findUnique({
+    where: { slug },
+    include: {
+      players: { select: { id: true, name: true, handicap: true } },
+      rounds: {
+        where: { status: 'FINAL' },
+        include: {
+          course: { select: { rating: true, slope: true, name: true } },
+          scores: { select: { playerId: true, gross: true } },
+        },
+        orderBy: { roundNumber: 'asc' },
+      },
+    },
+  })
+  if (!trip) return []
+
+  const rows: SandbaggerRow[] = []
+
+  for (const round of trip.rounds) {
+    if (!round.course?.rating || !round.course?.slope) continue
+
+    const grossByPlayer: Record<string, number> = {}
+    const holesByPlayer: Record<string, number> = {}
+    for (const score of round.scores) {
+      grossByPlayer[score.playerId] = (grossByPlayer[score.playerId] ?? 0) + score.gross
+      holesByPlayer[score.playerId] = (holesByPlayer[score.playerId] ?? 0) + 1
+    }
+
+    for (const player of trip.players) {
+      const grossTotal = grossByPlayer[player.id]
+      if (grossTotal == null) continue
+      const handicap = player.handicap ?? 0
+      const netDelta = getNetDifferential({
+        gross: grossTotal,
+        rating: round.course.rating,
+        slope: round.course.slope,
+        handicap,
+      })
+      const usga = getUSGAOdds(netDelta, handicap)
+
+      rows.push({
+        playerId: player.id,
+        playerName: player.name,
+        handicap,
+        roundId: round.id,
+        roundName: round.name,
+        grossTotal,
+        holesPlayed: holesByPlayer[player.id] ?? 0,
+        netDelta: Math.round(netDelta * 10) / 10,
+        odds: usga?.odds ?? null,
+        probability: usga ? Math.round(usga.probability * 10) / 10 : null,
+        handicapBand: usga?.handicapBand ?? null,
+        flag: getSandbaggerFlag(netDelta),
+      })
+    }
+  }
+
+  return rows
 }

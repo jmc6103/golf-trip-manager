@@ -4,6 +4,7 @@ import type { CourseSource, Prisma, RoundFormat, Trip, TripRole } from '@prisma/
 import { getDb } from './db'
 import { buildDefaultHoles } from './trip-ops'
 import { createCoursesForSetup, formatOptions } from './trip-data'
+import { getFormat } from './formats'
 import type { TripSetupDraft, TripSummary } from './types'
 
 export type TripDetail = Awaited<ReturnType<typeof getTripDetail>>
@@ -325,7 +326,7 @@ export async function upsertTripFromSetup(setup: TripSetupDraft, options: { pres
           roundNumber,
           name: `Round ${roundNumber}`,
           format,
-          handicapAllowance: 100,
+          handicapAllowance: Math.round(getFormat(format).handicapAllowance * 100),
           pointsAvailable: 1,
         },
         update: {

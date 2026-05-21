@@ -1,6 +1,8 @@
 import type { RoundFormat, TeamColor } from '@prisma/client'
 import { getDb } from './db'
 import { maxScoreForHole } from './scoring'
+import { getFormat } from './formats'
+import { getStrategy, emptyHistory, recordPairings, type MatchPairing, type PairingPlayer } from './pairing'
 
 type PlayerSeed = {
   id: string
@@ -36,11 +38,11 @@ export function buildDefaultHoles() {
 }
 
 export function isTeamFormat(format: RoundFormat | string) {
-  return ['SCRAMBLE', 'SHAMBLE', 'STABLEFORD'].includes(String(format))
+  return getFormat(format).isTeamFormat
 }
 
 export function isMatchPlayFormat(format: RoundFormat | string) {
-  return ['FOUR_BALL', 'SINGLES', 'ALT_SHOT', 'SCRAMBLE', 'SHAMBLE'].includes(String(format))
+  return getFormat(format).isMatchPlay
 }
 
 export async function ensureCourseHoles(tripId: string) {
@@ -118,12 +120,20 @@ export async function generateMatchesForTrip(slug: string) {
   await db.holeScore.deleteMany({ where: { tripId: trip.id } })
   await db.match.deleteMany({ where: { tripId: trip.id } })
 
+  const history = emptyHistory()
+  const strategy = getStrategy(trip.pairingMethod)
+
   for (const round of trip.rounds) {
-    if (round.format === 'STROKE_BLIND' || round.format === 'STABLEFORD') continue
-    if (isTeamFormat(round.format)) {
+    const fmt = getFormat(round.format)
+    if (fmt.skipMatchGeneration) continue
+    if (fmt.isTeamFormat) {
       await createTeamRoundMatches(trip.id, round.id, round.format, trip.teams)
     } else {
-      await createTwoTeamMatches(trip.id, round.id, round.format, trip.teams[0], trip.teams[1])
+      const sideOnePlayers: PairingPlayer[] = trip.teams[0].players.map((e) => ({ id: e.player.id, handicap: e.player.handicap ?? 0 }))
+      const sideTwoPlayers: PairingPlayer[] = trip.teams[1].players.map((e) => ({ id: e.player.id, handicap: e.player.handicap ?? 0 }))
+      const pairings = strategy.generatePairings({ sideOnePlayers, sideTwoPlayers, playersPerSide: fmt.playersPerSide, history })
+      await createMatchesFromPairings(trip.id, round.id, trip.teams[0], trip.teams[1], pairings)
+      recordPairings(history, pairings)
     }
   }
 
@@ -297,39 +307,33 @@ async function createTeamRoundMatches(
   )
 }
 
-async function createTwoTeamMatches(
+async function createMatchesFromPairings(
   tripId: string,
   roundId: string,
-  format: RoundFormat,
-  one: { id: string; name: string; players: Array<{ player: { id: string; handicap: number | null } }> },
-  two: { id: string; name: string; players: Array<{ player: { id: string; handicap: number | null } }> }
+  teamOne: { id: string; name: string },
+  teamTwo: { id: string; name: string },
+  pairings: MatchPairing[],
 ) {
   const db = getDb()
-  const onePlayers = [...one.players].map((entry) => entry.player).sort(byHandicap)
-  const twoPlayers = [...two.players].map((entry) => entry.player).sort(byHandicap)
-  const size = format === 'FOUR_BALL' || format === 'ALT_SHOT' ? 2 : 1
-  const matchCount = Math.min(Math.ceil(onePlayers.length / size), Math.ceil(twoPlayers.length / size))
-
-  for (let index = 0; index < matchCount; index++) {
+  for (let index = 0; index < pairings.length; index++) {
+    const pairing = pairings[index]
     const match = await db.match.create({ data: { tripId, roundId, matchNumber: index + 1, status: 'SCHEDULED' } })
-    const oneSlice = onePlayers.slice(index * size, index * size + size)
-    const twoSlice = twoPlayers.slice(index * size, index * size + size)
     await db.matchSide.create({
       data: {
         matchId: match.id,
         sideIndex: 1,
-        teamId: one.id,
-        label: one.name,
-        players: { createMany: { data: oneSlice.map((player, playerIndex) => ({ playerId: player.id, position: playerIndex + 1 })) } },
+        teamId: teamOne.id,
+        label: teamOne.name,
+        players: { createMany: { data: pairing.sideOne.map((p, i) => ({ playerId: p.id, position: i + 1 })) } },
       },
     })
     await db.matchSide.create({
       data: {
         matchId: match.id,
         sideIndex: 2,
-        teamId: two.id,
-        label: two.name,
-        players: { createMany: { data: twoSlice.map((player, playerIndex) => ({ playerId: player.id, position: playerIndex + 1 })) } },
+        teamId: teamTwo.id,
+        label: teamTwo.name,
+        players: { createMany: { data: pairing.sideTwo.map((p, i) => ({ playerId: p.id, position: i + 1 })) } },
       },
     })
   }

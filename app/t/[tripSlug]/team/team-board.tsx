@@ -87,7 +87,9 @@ export function TeamBoard({ slug }: { slug: string }) {
               <p className="mt-1 text-sm font-semibold text-slate-500">{data.selectedRound.course?.name ?? 'Course pending'}</p>
             </section>
 
-            {data.selectedRound.matchCards.length ? (
+            {data.selectedRound.leaderboardType === 'stroke-table' ? (
+              <Leaderboard rows={data.selectedRound.leaderboard} />
+            ) : data.selectedRound.matchCards.length ? (
               <section className="space-y-3">
                 <SectionTitle title={data.selectedRound.teamScoring ? 'Team Matches' : 'Live Matches'} />
                 {data.selectedRound.matchCards.map((match: any) => <MatchCard key={match.id} match={match} />)}
@@ -163,13 +165,20 @@ function Leaderboard({ rows }: { rows: any[] }) {
       <SectionTitle title="Leaderboard" />
       <div className="mt-3 space-y-2">
         {rows.length ? rows.map((row, index) => (
-          <div key={row.player.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+          <div key={row.player.id} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
             <span className="w-7 text-center text-sm font-black text-slate-500">{index + 1}</span>
             <div className="min-w-0">
               <p className="truncate font-black">{row.player.name}</p>
               <p className="text-sm text-slate-500">{row.holesPlayed} holes</p>
             </div>
-            <p className="text-xl font-black">{row.gross ?? '-'}</p>
+            <div className="text-right">
+              <p className="text-xs font-bold text-slate-400">gross</p>
+              <p className="text-sm font-black text-slate-500">{row.gross ?? '-'}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-bold text-slate-400">net</p>
+              <p className="text-xl font-black">{row.net ?? '-'}</p>
+            </div>
           </div>
         )) : <p className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-500">No scores yet.</p>}
       </div>

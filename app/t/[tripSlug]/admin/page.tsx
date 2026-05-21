@@ -4,6 +4,7 @@ import { loginTripAdmin } from '@/app/actions'
 import { redirect } from 'next/navigation'
 import { createDefaultSetup } from '@/lib/trip-data'
 import { getAdminRole, getTripDetail, getTripSummary, hasAdminAccess } from '@/lib/tenant-data'
+import { getSandbaggerData } from '@/lib/trip-view-data'
 import type { CourseDraft, TripSetupDraft } from '@/lib/types'
 
 export default async function AdminPage({
@@ -28,6 +29,7 @@ export default async function AdminPage({
   const initialSetup = detail ? setupFromDetail(detail) : fallback
   const canAdmin = trip ? await hasAdminAccess(tripSlug) : true
   const adminRole = canAdmin ? await getAdminRole(tripSlug) : null
+  const sandbaggerData = detail && canAdmin ? await getSandbaggerData(tripSlug) : []
 
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950">
@@ -43,7 +45,7 @@ export default async function AdminPage({
           formats: ['Setup underway'],
         }} initialSetup={initialSetup} canAdmin={canAdmin} isExistingTrip={Boolean(detail)} />
         {detail && !canAdmin ? <AdminLogin slug={tripSlug} error={query.adminError} /> : null}
-        {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} adminRole={adminRole} /> : null}
+        {detail ? <AdminControlRoom trip={detail} canAdmin={canAdmin} adminRole={adminRole} sandbaggerData={sandbaggerData} /> : null}
       </div>
     </main>
   )
