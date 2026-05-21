@@ -78,6 +78,7 @@ export async function getTeamBoardData(slug: string, roundNumber?: number) {
           course: { include: { holes: { orderBy: { holeNumber: 'asc' } } } },
           playerTees: true,
           submissions: true,
+          foursomes: { orderBy: { groupNumber: 'asc' } },
           scores: { include: { player: true } },
           matches: {
             orderBy: { matchNumber: 'asc' },
@@ -141,6 +142,7 @@ export async function getPlayerCardData(slug: string) {
           course: { include: { holes: { orderBy: { holeNumber: 'asc' } } } },
           playerTees: true,
           submissions: true,
+          foursomes: { orderBy: { groupNumber: 'asc' } },
           scores: { include: { player: true } },
           matches: {
             orderBy: { matchNumber: 'asc' },
@@ -167,6 +169,11 @@ export async function getPlayerCardData(slug: string) {
   const myScores = scoreMap[player.id] ?? {}
   const myTee = round.playerTees.find((item) => item.playerId === player.id)?.teeName ?? null
   const submittedAt = round.submissions.find((item) => item.playerId === player.id)?.submittedAt ?? null
+  const groupScorekeeping = buildGroupScorekeeping({
+    round,
+    currentPlayerId: player.id,
+    scoreMap,
+  })
 
   let matchTimeline = null
   let status = `${Object.keys(myScores).length} holes posted`
@@ -223,6 +230,39 @@ export async function getPlayerCardData(slug: string) {
     status,
     submittedAt: submittedAt?.toISOString() ?? null,
     teamScoring: isTeamFormat(round.format),
+    groupScorekeeping,
+  }
+}
+
+function buildGroupScorekeeping(params: {
+  round: any
+  currentPlayerId: string
+  scoreMap: Record<string, Record<number, number>>
+}) {
+  const group = params.round.foursomes?.find((item: any) =>
+    [item.player1Id, item.player2Id, item.player3Id, item.player4Id].includes(params.currentPlayerId)
+  )
+  if (!group) return null
+
+  const ids = [group.player1Id, group.player2Id, group.player3Id, group.player4Id].filter(Boolean) as string[]
+  const playersById = new Map<string, any>()
+  for (const match of params.round.matches ?? []) {
+    for (const side of match.sides ?? []) {
+      for (const entry of side.players ?? []) playersById.set(entry.playerId, entry.player)
+    }
+  }
+  for (const score of params.round.scores ?? []) playersById.set(score.playerId, score.player)
+
+  return {
+    id: group.id,
+    groupNumber: group.groupNumber,
+    scorekeeperPlayerId: group.scorekeeperPlayerId,
+    isScorekeeper: group.scorekeeperPlayerId === params.currentPlayerId,
+    members: ids.map((id) => ({
+      player: playerSummary(playersById.get(id) ?? { id, name: 'Player', handicap: 0 }),
+      scores: params.scoreMap[id] ?? {},
+      submittedAt: params.round.submissions.find((submission: any) => submission.playerId === id)?.submittedAt?.toISOString?.() ?? null,
+    })),
   }
 }
 
@@ -268,6 +308,14 @@ function summarizeRound(round: any) {
       if (side.teamId) pointsByTeam[side.teamId] = (pointsByTeam[side.teamId] ?? 0) + side.points
     }
   }
+  if (round.format === 'STROKE_BLIND' && round.status === 'FINAL') {
+    for (const match of round.matches) {
+      if (match.voidedAt) continue
+      for (const side of match.sides) {
+        if (side.teamId) pointsByTeam[side.teamId] = (pointsByTeam[side.teamId] ?? 0) + side.points
+      }
+    }
+  }
 
   const players = [...new Map(round.scores.map((score: any) => [score.playerId, score.player])).values()].filter(Boolean)
   const rows = players.map((player: any) => {
@@ -295,9 +343,43 @@ function summarizeRound(round: any) {
     teamScoring: isTeamFormat(round.format),
     leaderboardType: fmt.leaderboardType,
     pointsByTeam,
-    matchCards,
+    matchCards: round.format === 'STROKE_BLIND' ? [] : matchCards,
+    blindMatches: round.format === 'STROKE_BLIND' && round.status === 'FINAL' ? buildBlindMatches(round, holes, scoreMap, roundAllowance) : [],
+    foursomes: (round.foursomes ?? []).map((group: any) => ({
+      id: group.id,
+      groupNumber: group.groupNumber,
+      playerIds: [group.player1Id, group.player2Id, group.player3Id, group.player4Id].filter(Boolean),
+    })),
     leaderboard: rows.sort((a, b) => (a.net == null ? 1 : b.net == null ? -1 : a.net - b.net)),
   }
+}
+
+function buildBlindMatches(round: any, holes: Array<{ holeNumber: number; par: number; strokeIndex: number }>, scoreMap: Record<string, Record<number, number>>, allowance: number) {
+  return round.matches.map((match: any) => {
+    const sides = match.sides.map((side: any) => {
+      const player = side.players[0]?.player
+      const scores = player ? scoreMap[player.id] ?? {} : {}
+      const strokeHoles = getStrokeHoles(Math.round((player?.handicap ?? 0) * allowance), holes)
+      const gross = Object.values(scores).reduce<number>((sum, score) => sum + score, 0)
+      const net = Object.keys(scores).length === holes.length ? calculateNetTotal(scores, strokeHoles) : null
+      return {
+        id: side.id,
+        teamId: side.teamId,
+        label: sideLabel(side, 'Side'),
+        player: player ? playerSummary(player) : null,
+        gross: Object.keys(scores).length ? gross : null,
+        net,
+        points: side.points,
+      }
+    })
+    return {
+      id: match.id,
+      matchNumber: match.matchNumber,
+      voidedAt: match.voidedAt?.toISOString?.() ?? null,
+      voidReason: match.voidReason ?? null,
+      sides,
+    }
+  })
 }
 
 function buildStrokeSummary(params: {

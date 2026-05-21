@@ -5,6 +5,7 @@ import {
   emergencyWipe,
   finalizeRound,
   forceFinalizeRound,
+  generateFoursomesForTrip,
   generateMatchesForTrip,
   generateTeamsForTrip,
   overrideScore,
@@ -29,6 +30,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ tripSlu
     } else if (action === 'generate-matches') {
       await requireRole(tripSlug, 'ADMIN')
       await generateMatchesForTrip(tripSlug)
+    } else if (action === 'generate-foursomes') {
+      await requireRole(tripSlug, 'ADMIN')
+      await generateFoursomesForTrip(tripSlug)
     } else if (action === 'start-round') {
       await requireRole(tripSlug, 'ADMIN')
       await startRound(tripSlug, String(body?.roundId ?? ''))

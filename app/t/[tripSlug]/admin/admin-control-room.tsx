@@ -22,6 +22,15 @@ type AdminTrip = {
     courseId: string | null
     submissions: Array<{ playerId: string; submittedAt: Date | string }>
     playerTees: Array<{ playerId: string; teeName: string }>
+    foursomes: Array<{
+      id: string
+      groupNumber: number
+      player1Id: string | null
+      player2Id: string | null
+      player3Id: string | null
+      player4Id: string | null
+      scorekeeperPlayerId: string | null
+    }>
     matches: Array<{
       id: string
       matchNumber: number
@@ -32,13 +41,14 @@ type AdminTrip = {
   }>
 }
 
-type Tab = 'status' | 'rounds' | 'players' | 'matchups' | 'handicap' | 'breakglass'
+type Tab = 'status' | 'rounds' | 'players' | 'matchups' | 'groups' | 'handicap' | 'breakglass'
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'status', label: 'Status' },
   { id: 'rounds', label: 'Rounds' },
   { id: 'players', label: 'Players' },
   { id: 'matchups', label: 'Matchups' },
+  { id: 'groups', label: 'Groups' },
   { id: 'handicap', label: 'Handicap' },
   { id: 'breakglass', label: 'Break Glass' },
 ]
@@ -94,6 +104,7 @@ export function AdminControlRoom({ trip, canAdmin, adminRole, sandbaggerData = [
       {tab === 'rounds' && <RoundsTab trip={trip} mutate={mutate} isPending={isPending} />}
       {tab === 'players' && <PlayersTab trip={trip} mutate={mutate} isPending={isPending} />}
       {tab === 'matchups' && <MatchupsTab trip={trip} mutate={mutate} />}
+      {tab === 'groups' && <GroupsTab trip={trip} mutate={mutate} isPending={isPending} />}
       {tab === 'handicap' && <HandicapTab rows={sandbaggerData} mutate={mutate} players={trip.players} isOwner={isOwner} />}
       {tab === 'breakglass' && <BreakGlassTab trip={trip} isOwner={isOwner} mutate={mutate} />}
     </section>
@@ -352,6 +363,62 @@ function MatchupsTab({ trip, mutate }: { trip: AdminTrip; mutate: Mutate }) {
             ) : null}
           </div>
         ) : null}
+      </section>
+    </div>
+  )
+}
+
+function GroupsTab({ trip, mutate, isPending }: { trip: AdminTrip; mutate: Mutate; isPending: boolean }) {
+  const [selectedRound, setSelectedRound] = useState(trip.rounds[0]?.id ?? '')
+  const round = trip.rounds.find((r) => r.id === selectedRound) ?? trip.rounds[0]
+  const playersById = Object.fromEntries(trip.players.map((player) => [player.id, player]))
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <SectionTitle title="Foursomes" />
+        <p className="mt-1 text-xs text-slate-400">Generate playing groups from the current matchups. One player in each group can keep the whole group card.</p>
+        <button onClick={() => mutate({ action: 'generate-foursomes' })} disabled={isPending} className="mt-3 w-full rounded-2xl bg-indigo-600 px-4 py-4 font-black text-white disabled:opacity-60">
+          Generate Foursomes
+        </button>
+      </section>
+
+      {trip.rounds.length > 1 ? (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {trip.rounds.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => setSelectedRound(r.id)}
+              className={`shrink-0 rounded-2xl px-4 py-2 text-sm font-black ${r.id === selectedRound ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'}`}
+            >
+              R{r.roundNumber}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <SectionTitle title={round ? `Round ${round.roundNumber} Groups` : 'Round Groups'} />
+        <div className="mt-3 space-y-3">
+          {round?.foursomes.map((group) => {
+            const ids = [group.player1Id, group.player2Id, group.player3Id, group.player4Id].filter(Boolean) as string[]
+            return (
+              <div key={group.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-black">Group {group.groupNumber}</p>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">{ids.length} players</span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {ids.map((id) => <p key={id} className="text-sm font-semibold text-slate-600">{playersById[id]?.name ?? 'Player'}</p>)}
+                </div>
+                <p className="mt-2 text-xs font-bold text-slate-500">
+                  Scorekeeper: {group.scorekeeperPlayerId ? playersById[group.scorekeeperPlayerId]?.name ?? 'Selected player' : 'Chosen by group'}
+                </p>
+              </div>
+            )
+          })}
+          {!round?.foursomes.length ? <p className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-500">No groups generated for this round yet.</p> : null}
+        </div>
       </section>
     </div>
   )

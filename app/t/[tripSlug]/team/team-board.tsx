@@ -88,15 +88,17 @@ export function TeamBoard({ slug }: { slug: string }) {
             </section>
 
             {data.selectedRound.leaderboardType === 'stroke-table' ? (
-              <Leaderboard rows={data.selectedRound.leaderboard} />
+              <Leaderboard rows={data.selectedRound.leaderboard} slug={data.trip.slug} roundId={data.selectedRound.id} />
             ) : data.selectedRound.matchCards.length ? (
               <section className="space-y-3">
                 <SectionTitle title={data.selectedRound.teamScoring ? 'Team Matches' : 'Live Matches'} />
-                {data.selectedRound.matchCards.map((match: any) => <MatchCard key={match.id} match={match} />)}
+                {data.selectedRound.matchCards.map((match: any) => <MatchCard key={match.id} match={match} slug={data.trip.slug} roundId={data.selectedRound.id} />)}
               </section>
             ) : (
-              <Leaderboard rows={data.selectedRound.leaderboard} />
+              <Leaderboard rows={data.selectedRound.leaderboard} slug={data.trip.slug} roundId={data.selectedRound.id} />
             )}
+            {data.selectedRound.blindMatches?.length ? <BlindReveal matches={data.selectedRound.blindMatches} /> : null}
+            {data.selectedRound.foursomes?.length ? <Foursomes groups={data.selectedRound.foursomes} players={data.teams.flatMap((team) => team.players)} /> : null}
           </>
         ) : null}
 
@@ -112,6 +114,7 @@ export function TeamBoard({ slug }: { slug: string }) {
 
 function formatEvent(event: { type: string; payload: unknown }) {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {}
+  if (typeof payload.title === 'string') return payload.title
   if (event.type === 'ROUND_STARTED') return 'Round started.'
   if (event.type === 'ROUND_FINAL') return 'Round finalized.'
   if (event.type === 'MATCH_STATUS') return typeof payload.status === 'string' ? payload.status : 'Match status changed.'
@@ -134,7 +137,7 @@ function ScorePanel({ label, value }: { label: string; value: number }) {
   )
 }
 
-function MatchCard({ match }: { match: any }) {
+function MatchCard({ match, slug, roundId }: { match: any; slug: string; roundId: string }) {
   return (
     <article className="rounded-[26px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
       <div className="flex items-start justify-between gap-3">
@@ -146,26 +149,67 @@ function MatchCard({ match }: { match: any }) {
       </div>
       <div className="mt-4 space-y-2">
         {match.sides.map((side: any) => (
-          <div key={side.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+          <Link key={side.id} href={`/t/${slug}/scorecard?roundId=${roundId}&matchId=${match.id}`} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-3">
             <div className="min-w-0">
               <p className="truncate font-black">{side.label}</p>
               <p className="truncate text-sm font-semibold text-slate-500">{side.players.map((player: any) => player.name).join(' / ') || 'TBD'}</p>
             </div>
             <span className="rounded-full bg-white px-3 py-1 text-sm font-black ring-1 ring-slate-200">{Number.isInteger(side.points) ? side.points : side.points.toFixed(1)}</span>
-          </div>
+          </Link>
         ))}
       </div>
     </article>
   )
 }
 
-function Leaderboard({ rows }: { rows: any[] }) {
+function BlindReveal({ matches }: { matches: any[] }) {
+  return (
+    <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <SectionTitle title="Blind Match Reveal" />
+      <div className="mt-3 space-y-2">
+        {matches.map((match) => (
+          <div key={match.id} className="rounded-2xl bg-slate-50 p-3">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">Match {match.matchNumber}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {match.sides.map((side: any) => (
+                <div key={side.id} className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                  <p className="truncate text-sm font-black">{side.player?.name ?? side.label}</p>
+                  <p className="text-xs font-bold text-slate-500">Gross {side.gross ?? '-'} / Net {side.net ?? '-'}</p>
+                  <p className="mt-1 text-lg font-black">{Number.isInteger(side.points) ? side.points : side.points.toFixed(1)} pts</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function Foursomes({ groups, players }: { groups: any[]; players: Array<{ id: string; name: string }> }) {
+  const playersById = new Map(players.map((player) => [player.id, player.name]))
+  return (
+    <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <SectionTitle title="Foursomes" />
+      <div className="mt-3 space-y-2">
+        {groups.map((group) => (
+          <div key={group.id} className="rounded-2xl bg-slate-50 px-3 py-3">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">Group {group.groupNumber}</p>
+            <p className="mt-1 text-sm font-black">{group.playerIds.map((id: string) => playersById.get(id) ?? 'Player').join(' / ')}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function Leaderboard({ rows, slug, roundId }: { rows: any[]; slug: string; roundId: string }) {
   return (
     <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200">
       <SectionTitle title="Leaderboard" />
       <div className="mt-3 space-y-2">
         {rows.length ? rows.map((row, index) => (
-          <div key={row.player.id} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+          <Link key={row.player.id} href={`/t/${slug}/scorecard?roundId=${roundId}&playerId=${row.player.id}`} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
             <span className="w-7 text-center text-sm font-black text-slate-500">{index + 1}</span>
             <div className="min-w-0">
               <p className="truncate font-black">{row.player.name}</p>
@@ -179,7 +223,7 @@ function Leaderboard({ rows }: { rows: any[] }) {
               <p className="text-xs font-bold text-slate-400">net</p>
               <p className="text-xl font-black">{row.net ?? '-'}</p>
             </div>
-          </div>
+          </Link>
         )) : <p className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-500">No scores yet.</p>}
       </div>
     </section>

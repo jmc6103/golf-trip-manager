@@ -83,6 +83,7 @@ export async function getTripDetail(slug: string) {
           course: true,
           playerTees: true,
           submissions: true,
+          foursomes: { orderBy: { groupNumber: 'asc' } },
           matches: {
             orderBy: { matchNumber: 'asc' },
             include: {

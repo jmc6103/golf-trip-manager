@@ -134,6 +134,7 @@ model Trip {
   adminActions    AdminAction[]
   handicapAdjustments HandicapAdjustment[]
   notificationEvents  NotificationEvent[]
+  foursomes           Foursome[]
 
   @@index([status])
   @@index([createdAt])
@@ -285,6 +286,7 @@ model Round {
   scores      HoleScore[]
   submissions RoundSubmission[]
   playerTees  PlayerRoundTee[]
+  foursomes   Foursome[]
 
   @@unique([tripId, roundNumber])
   @@index([tripId, dayNumber])
@@ -345,6 +347,27 @@ model MatchPlayer {
 
   @@unique([matchSideId, playerId])
   @@index([playerId])
+}
+
+model Foursome {
+  id                  String   @id @default(cuid())
+  tripId              String
+  roundId             String
+  groupNumber         Int
+  player1Id           String?
+  player2Id           String?
+  player3Id           String?
+  player4Id           String?
+  scorekeeperPlayerId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  trip  Trip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, groupNumber])
+  @@index([tripId])
+  @@index([scorekeeperPlayerId])
 }
 
 model HoleScore {

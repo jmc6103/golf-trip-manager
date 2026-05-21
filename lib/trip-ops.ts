@@ -1,6 +1,6 @@
 import type { RoundFormat, TeamColor } from '@prisma/client'
 import { getDb } from './db'
-import { maxScoreForHole } from './scoring'
+import { getStrokeHoles, maxScoreForHole } from './scoring'
 import { getFormat } from './formats'
 import { getStrategy, emptyHistory, recordPairings, type MatchPairing, type PairingPlayer } from './pairing'
 
@@ -157,10 +157,7 @@ export async function finalizeRound(slug: string, roundId: string) {
   const db = getDb()
   const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
   if (!trip) throw new Error('Trip not found.')
-  await db.$transaction([
-    db.round.update({ where: { id: roundId }, data: { status: 'FINAL', finalizedAt: new Date() } }),
-    db.notificationEvent.create({ data: { tripId: trip.id, type: 'ROUND_FINAL', payload: { roundId } } }),
-  ])
+  await finalizeRoundResults(trip.id, roundId)
 }
 
 export async function voidMatch(slug: string, matchId: string, reason: string) {
@@ -252,10 +249,9 @@ export async function forceFinalizeRound(slug: string, roundId: string) {
 
   await db.$transaction([
     ...(data.length ? [db.holeScore.createMany({ data, skipDuplicates: true })] : []),
-    db.round.update({ where: { id: round.id }, data: { status: 'FINAL', finalizedAt: new Date() } }),
     db.adminAction.create({ data: { tripId: trip.id, action: 'force-finalize', payload: { roundId: round.id, insertedScores: data.length } } }),
-    db.notificationEvent.create({ data: { tripId: trip.id, type: 'ROUND_FINAL', payload: { roundId: round.id, forced: true } } }),
   ])
+  await finalizeRoundResults(trip.id, round.id, true)
 }
 
 export async function emergencyWipe(slug: string) {
@@ -282,6 +278,66 @@ export async function adjustHandicap(slug: string, playerId: string, newValue: n
     db.handicapAdjustment.create({ data: { tripId: trip.id, playerId: player.id, oldValue, newValue, reason } }),
     db.adminAction.create({ data: { tripId: trip.id, action: 'adjust-handicap', payload: { playerId: player.id, oldValue, newValue, reason } } }),
   ])
+}
+
+export async function generateFoursomesForTrip(slug: string) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({
+    where: { slug },
+    include: {
+      players: { include: { teamMemberships: { include: { team: true } } } },
+      rounds: {
+        orderBy: { roundNumber: 'asc' },
+        include: {
+          matches: {
+            orderBy: { matchNumber: 'asc' },
+            include: { sides: { orderBy: { sideIndex: 'asc' }, include: { players: { orderBy: { position: 'asc' } } } } },
+          },
+        },
+      },
+    },
+  })
+  if (!trip) throw new Error('Trip not found.')
+
+  const writes = trip.rounds.flatMap((round) => {
+    const groups = buildFoursomeGroupsForRound(round, trip.players)
+    return groups.map((playerIds, index) =>
+      db.foursome.create({
+        data: {
+          tripId: trip.id,
+          roundId: round.id,
+          groupNumber: index + 1,
+          player1Id: playerIds[0] ?? null,
+          player2Id: playerIds[1] ?? null,
+          player3Id: playerIds[2] ?? null,
+          player4Id: playerIds[3] ?? null,
+        },
+      })
+    )
+  })
+
+  await db.$transaction([
+    db.foursome.deleteMany({ where: { tripId: trip.id } }),
+    ...writes,
+    db.adminAction.create({ data: { tripId: trip.id, action: 'generate-foursomes', payload: { roundCount: trip.rounds.length, groupCount: writes.length } } }),
+  ])
+}
+
+export async function updateFoursomeScorekeeper(slug: string, playerId: string, roundId: string, scorekeeperPlayerId: string | null) {
+  const db = getDb()
+  const trip = await db.trip.findUnique({ where: { slug }, select: { id: true } })
+  if (!trip) throw new Error('Trip not found.')
+  const foursome = await db.foursome.findFirst({
+    where: {
+      tripId: trip.id,
+      roundId,
+      OR: [{ player1Id: playerId }, { player2Id: playerId }, { player3Id: playerId }, { player4Id: playerId }],
+    },
+  })
+  if (!foursome) throw new Error('No group found for this round.')
+  const ids = playerIdsForFoursome(foursome)
+  if (scorekeeperPlayerId && !ids.includes(scorekeeperPlayerId)) throw new Error('Scorekeeper must be in the group.')
+  await db.foursome.update({ where: { id: foursome.id }, data: { scorekeeperPlayerId } })
 }
 
 async function createTeamRoundMatches(
@@ -337,6 +393,118 @@ async function createMatchesFromPairings(
       },
     })
   }
+}
+
+async function finalizeRoundResults(tripId: string, roundId: string, forced = false) {
+  const db = getDb()
+  const round = await db.round.findFirst({
+    where: { id: roundId, tripId },
+    include: {
+      course: { include: { holes: true } },
+      scores: true,
+      matches: {
+        include: {
+          sides: { orderBy: { sideIndex: 'asc' }, include: { players: { include: { player: true }, orderBy: { position: 'asc' } } } },
+        },
+      },
+    },
+  })
+  if (!round) throw new Error('Round not found.')
+
+  const sideUpdates = round.format === 'STROKE_BLIND' && round.course
+    ? buildStrokeBlindSideUpdates(round)
+    : []
+
+  const allFinalAfter = await db.round.count({ where: { tripId, id: { not: roundId }, status: { not: 'FINAL' } } })
+  await db.$transaction([
+    ...sideUpdates.map((update) => db.matchSide.update({ where: { id: update.sideId }, data: { points: update.points } })),
+    ...round.matches.map((match) =>
+      db.match.update({
+        where: { id: match.id },
+        data: { status: 'FINAL', ...(match.voidedAt ? { result: null } : {}), finalizedAt: new Date() },
+      })
+    ),
+    db.round.update({ where: { id: roundId }, data: { status: 'FINAL', finalizedAt: new Date() } }),
+    ...(allFinalAfter === 0 ? [db.trip.update({ where: { id: tripId }, data: { status: 'COMPLETE' } })] : []),
+    db.notificationEvent.create({ data: { tripId, type: 'ROUND_FINAL', payload: { roundId, forced } } }),
+  ])
+}
+
+function buildStrokeBlindSideUpdates(round: {
+  scores: Array<{ playerId: string; holeNumber: number; gross: number }>
+  course: { holes: Array<{ holeNumber: number; par: number; strokeIndex: number }> } | null
+  matches: Array<{
+    voidedAt: Date | null
+    sides: Array<{ id: string; players: Array<{ player: { id: string; handicap: number | null } }> }>
+  }>
+}) {
+  const holes = round.course?.holes ?? []
+  const scoreMap = new Map<string, Record<number, number>>()
+  for (const score of round.scores) {
+    scoreMap.set(score.playerId, { ...(scoreMap.get(score.playerId) ?? {}), [score.holeNumber]: score.gross })
+  }
+
+  return round.matches.flatMap((match) => {
+    const sideOne = match.sides[0]
+    const sideTwo = match.sides[1]
+    const playerOne = sideOne?.players[0]?.player
+    const playerTwo = sideTwo?.players[0]?.player
+    if (!sideOne || !sideTwo || !playerOne || !playerTwo || match.voidedAt) {
+      return [
+        ...(sideOne ? [{ sideId: sideOne.id, points: 0 }] : []),
+        ...(sideTwo ? [{ sideId: sideTwo.id, points: 0 }] : []),
+      ]
+    }
+    const oneNet = strokePlayNet(scoreMap.get(playerOne.id) ?? {}, playerOne.handicap ?? 0, holes)
+    const twoNet = strokePlayNet(scoreMap.get(playerTwo.id) ?? {}, playerTwo.handicap ?? 0, holes)
+    if (oneNet == null || twoNet == null) return [{ sideId: sideOne.id, points: 0 }, { sideId: sideTwo.id, points: 0 }]
+    if (oneNet < twoNet) return [{ sideId: sideOne.id, points: 1 }, { sideId: sideTwo.id, points: 0 }]
+    if (twoNet < oneNet) return [{ sideId: sideOne.id, points: 0 }, { sideId: sideTwo.id, points: 1 }]
+    return [{ sideId: sideOne.id, points: 0.5 }, { sideId: sideTwo.id, points: 0.5 }]
+  })
+}
+
+function strokePlayNet(scores: Record<number, number>, handicap: number, holes: Array<{ holeNumber: number; par: number; strokeIndex: number }>) {
+  if (Object.keys(scores).length < holes.length) return null
+  const strokeHoles = getStrokeHoles(Math.round(handicap * 0.95), holes)
+  return Object.entries(scores).reduce((sum, [holeNumber, gross]) => {
+    const strokes = strokeHoles.filter((number) => number === Number(holeNumber)).length
+    return sum + gross - strokes
+  }, 0)
+}
+
+function buildFoursomeGroupsForRound(
+  round: {
+    format: RoundFormat
+    matches: Array<{ sides: Array<{ players: Array<{ playerId: string }> }> }>
+  },
+  players: Array<{ id: string; handicap: number | null; teamMemberships: Array<{ team: { seed: number | null } }> }>
+) {
+  if (round.matches.length) {
+    const matchGroups = round.matches
+      .map((match) => match.sides.flatMap((side) => side.players.map((entry) => entry.playerId)))
+      .filter((ids) => ids.length > 0)
+    if (round.format === 'SINGLES' || round.format === 'STROKE_BLIND') {
+      const groups: string[][] = []
+      for (let index = 0; index < matchGroups.length; index += 2) {
+        groups.push([...matchGroups[index], ...(matchGroups[index + 1] ?? [])].slice(0, 4))
+      }
+      return groups
+    }
+    return matchGroups.map((ids) => ids.slice(0, 4))
+  }
+
+  const sorted = [...players].sort((a, b) => {
+    const seedGap = (a.teamMemberships[0]?.team.seed ?? 0) - (b.teamMemberships[0]?.team.seed ?? 0)
+    return seedGap || (a.handicap ?? 0) - (b.handicap ?? 0)
+  })
+  const groups: string[][] = []
+  for (let index = 0; index < sorted.length; index += 4) groups.push(sorted.slice(index, index + 4).map((player) => player.id))
+  return groups
+}
+
+function playerIdsForFoursome(foursome: { player1Id: string | null; player2Id: string | null; player3Id: string | null; player4Id: string | null }) {
+  return [foursome.player1Id, foursome.player2Id, foursome.player3Id, foursome.player4Id].filter((id): id is string => Boolean(id))
 }
 
 function balancePlayers(players: PlayerSeed[]) {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { getPlayerFromCookie } from '@/lib/tenant-data'
 import { buildMatchStatus, calculateMatchHoleStatuses, calculateNetTotal, maxScoreForHole } from '@/lib/scoring'
+import { emitScoreMilestones } from '@/lib/score-notifications'
 
 export async function POST(req: Request, { params }: { params: Promise<{ tripSlug: string }> }) {
   const { tripSlug } = await params
@@ -32,12 +33,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ tripSlu
       },
     },
   })
-  const round = trip?.rounds[0] ?? await db.round.findFirst({
-    where: { trip: { slug: tripSlug } },
-    orderBy: { roundNumber: 'asc' },
-    include: { course: { include: { holes: true } }, matches: { include: { scores: true, sides: { include: { team: true, players: { include: { player: true } } } } } } },
-  })
-  if (!trip || !round) return NextResponse.json({ error: 'No round found.' }, { status: 404 })
+  const round = trip?.rounds[0]
+  if (!trip || !round) return NextResponse.json({ error: 'No live round is open for scoring.' }, { status: 400 })
 
   const hole = round.course?.holes.find((item) => item.holeNumber === holeNumber)
   if (!hole) return NextResponse.json({ error: 'Hole not found.' }, { status: 404 })
@@ -61,6 +58,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ tripSlu
       gross,
     },
     update: { gross, matchId: match?.id ?? null, holeId: hole.id },
+  })
+  await emitScoreMilestones({
+    tripId: trip.id,
+    roundId: round.id,
+    playerId: player.id,
+    playerName: player.name,
+    holeNumber,
+    gross,
+    par: hole.par,
   })
 
   const playerScores = await db.holeScore.findMany({
@@ -101,6 +107,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ tripSlu
     }
   }
 
+  return NextResponse.json({ ok: true })
+}
+
+export async function DELETE(req: Request, { params }: { params: Promise<{ tripSlug: string }> }) {
+  const { tripSlug } = await params
+  const player = await getPlayerFromCookie(tripSlug)
+  if (!player) return NextResponse.json({ error: 'No player session.' }, { status: 401 })
+
+  const body = await req.json().catch(() => null)
+  const holeNumber = Number(body?.holeNumber)
+  if (!Number.isInteger(holeNumber) || holeNumber < 1 || holeNumber > 18) {
+    return NextResponse.json({ error: 'Invalid hole number.' }, { status: 400 })
+  }
+
+  const db = getDb()
+  const round = await db.round.findFirst({ where: { trip: { slug: tripSlug }, status: 'LIVE' }, select: { id: true } })
+  if (!round) return NextResponse.json({ error: 'No live round is open for scoring.' }, { status: 400 })
+  await db.holeScore.deleteMany({ where: { roundId: round.id, playerId: player.id, holeNumber } })
   return NextResponse.json({ ok: true })
 }
 

@@ -8,7 +8,7 @@ export const strokeBlind: FormatModule = {
   defaultScoreMax: 'TRIPLE_BOGEY',
   isMatchPlay: false,
   isTeamFormat: false,
-  skipMatchGeneration: true,
+  skipMatchGeneration: false,
   playersPerSide: 1,
   sideScoring: 'SINGLE',
   leaderboardType: 'stroke-table',
