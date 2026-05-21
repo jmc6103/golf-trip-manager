@@ -54,6 +54,7 @@ export function maxScoreForHole(par: number, scoreMax: string) {
   if (scoreMax === 'DOUBLE_BOGEY') return par + 2
   if (scoreMax === 'TRIPLE_BOGEY') return par + 3
   if (scoreMax === 'NET_DOUBLE_BOGEY') return par + 3
+  if (scoreMax === 'DOUBLE_PAR') return par * 2
   return 20
 }
 

@@ -22,7 +22,7 @@ export type TripLink = {
 
 export type RulesMode = 'USGA' | 'RELAXED'
 
-export type ScoreMax = 'NONE' | 'DOUBLE_BOGEY' | 'TRIPLE_BOGEY' | 'NET_DOUBLE_BOGEY'
+export type ScoreMax = 'NONE' | 'DOUBLE_BOGEY' | 'TRIPLE_BOGEY' | 'NET_DOUBLE_BOGEY' | 'DOUBLE_PAR'
 
 export type TeamMethod = 'BALANCED_AUTO' | 'CAPTAINS_PICK' | 'MANUAL' | 'RANDOM'
 

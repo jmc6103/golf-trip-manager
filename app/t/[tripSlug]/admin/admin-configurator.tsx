@@ -27,6 +27,7 @@ const scoreMaxOptions: Array<[ScoreMax, string]> = [
   ['TRIPLE_BOGEY', 'Triple bogey max'],
   ['DOUBLE_BOGEY', 'Double bogey max'],
   ['NET_DOUBLE_BOGEY', 'Net double bogey max'],
+  ['DOUBLE_PAR', 'Double par max'],
   ['NONE', 'No max'],
 ]
 
@@ -310,6 +311,11 @@ function RulesStep({ setup, update }: { setup: TripSetupDraft; update: (partial:
         <Select value={setup.teamMethod} onChange={(value) => update({ teamMethod: value as TeamMethod })} options={teamMethods} />
         <Select value={setup.pairingMethod} onChange={(value) => update({ pairingMethod: value as PairingMethod })} options={pairingMethods} />
       </div>
+      {setup.pairingMethod === 'RULE_BASED' ? (
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          Rule-based pairings balance handicap gaps across matches, avoid repeat opponents across rounds, and use depth-first search to find the optimal set of pairings for all rounds at once.
+        </p>
+      ) : null}
       <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-500 ring-1 ring-slate-200">
         Admin recovery stays lightweight: players need no account, owner gets email magic-link recovery and a private admin link.
       </div>
@@ -423,6 +429,17 @@ function getSetupChecks(setup: TripSetupDraft) {
 }
 
 function CompleteStep({ trip, result }: { trip: TripSummary; result: SetupResult | null }) {
+  const [copied, setCopied] = useState(false)
+
+  function copyInvite() {
+    if (!result) return
+    const url = `${window.location.origin}${result.inviteUrl}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div>
       <SectionTitle title="Setup Complete" />
@@ -432,7 +449,12 @@ function CompleteStep({ trip, result }: { trip: TripSummary; result: SetupResult
           <>
             <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">Player Invite Link</p>
-              <p className="mt-1 break-all text-sm font-bold text-slate-950">{result.inviteUrl}</p>
+              <p className="mt-1 break-all text-sm font-bold text-slate-950">
+                {typeof window !== 'undefined' ? window.location.origin : ''}{result.inviteUrl}
+              </p>
+              <button onClick={copyInvite} className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white active:opacity-80">
+                {copied ? 'Copied!' : 'Copy Invite Link'}
+              </button>
             </div>
             <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
               <p className="text-xs font-black uppercase tracking-wide text-amber-700">Admin Recovery Link — Save This Now</p>

@@ -120,21 +120,52 @@ async function searchBlueGolf(query: string): Promise<NormalizedCourse[]> {
 
 async function fetchBlueGolfDirectory(query: string): Promise<NormalizedCourse[]> {
   const url = `${BLUEGOLF_DIRECTORY_URL}?q=${encodeURIComponent(query)}`
-  const res = await fetch(url, { next: { revalidate: 60 * 60 }, signal: AbortSignal.timeout(5000) }).catch(() => null)
+  const res = await fetch(url, { next: { revalidate: 60 * 60 } }).catch(() => null)
   if (!res?.ok) return []
 
   const html = await res.text()
-  const rows = [...html.matchAll(/<tr[^>]*>\s*<td>([\s\S]*?)<\/td>\s*<td>([\s\S]*?)<\/td>[\s\S]*?<\/tr>/gi)]
+  // Match any table row that contains at least two cells
+  const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
   const courses: NormalizedCourse[] = []
   const seen = new Set<string>()
 
   for (const row of rows) {
-    const href = row[1].match(/href=["']([^"']+\/index\.htm)["']/i)?.[1]
-    const courseId = row[1].match(/name=["']c["']\s+value=["']([^"']+)["']/i)?.[1] ?? href?.replace(/\/index\.htm$/i, '')
-    if (!href || !courseId || seen.has(courseId)) continue
+    const rowHtml = row[1]
+    const cells = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+    if (cells.length < 2) continue
 
-    const name = textFromHtml(row[1].match(/d-none d-md-block["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] ?? row[1])
-    const location = textFromHtml(row[2]).replace(/\s*,\s*/, ', ')
+    const cell1 = cells[0][1]
+    const cell2 = cells[1][1]
+
+    // Try multiple href patterns BlueGolf has used over time
+    const href =
+      cell1.match(/href=["']([^"']+\/index\.htm)["']/i)?.[1] ||
+      cell1.match(/href=["']([^"']+\/detailedscorecard\.htm)["']/i)?.[1] ||
+      cell1.match(/href=["'](\/bluegolf\/course\/course\/[^"']+\.htm)["']/i)?.[1] ||
+      cell1.match(/href=["'](\/bluegolf\/course\/course\/[^"']+)["']/i)?.[1]
+
+    if (!href) continue
+
+    // Derive courseId: the path segment after /course/course/
+    const courseId =
+      href.match(/\/course\/course\/([^/]+)\//i)?.[1] ||
+      href.match(/\/course\/course\/([^/]+)/i)?.[1] ||
+      href.replace(/\/index\.htm$/i, '').replace(/^.*\//, '')
+
+    if (!courseId || courseId.length < 3 || seen.has(courseId)) continue
+
+    // Extract name — try Bootstrap class first, then any <span>, then anchor text, then full cell
+    const name = textFromHtml(
+      cell1.match(/d-none d-md-block[^>]*>([\s\S]*?)<\/span>/i)?.[1] ||
+      cell1.match(/class="[^"]*course[^"]*"[^>]*>([\s\S]*?)<\/[a-z]+>/i)?.[1] ||
+      cell1.match(/<a[^>]+href[^>]*>([\s\S]*?)<\/a>/i)?.[1] ||
+      cell1.match(/<span[^>]*>([\s\S]*?)<\/span>/i)?.[1] ||
+      cell1
+    )
+
+    if (!name || name.length < 3) continue
+
+    const location = textFromHtml(cell2).replace(/\s*,\s*/, ', ')
     const [city, state] = location.split(',').map((part) => part.trim())
 
     seen.add(courseId)
@@ -154,7 +185,7 @@ async function fetchBlueGolfDirectory(query: string): Promise<NormalizedCourse[]
 
 async function fetchBlueGolfScorecardCandidate(courseId: string, query: string): Promise<NormalizedCourse | null> {
   const url = `https://course.bluegolf.com/bluegolf/course/course/${courseId}/detailedscorecard.htm`
-  const res = await fetch(url, { next: { revalidate: 60 * 60 }, signal: AbortSignal.timeout(5000) }).catch(() => null)
+  const res = await fetch(url, { next: { revalidate: 60 * 60 } }).catch(() => null)
   if (!res?.ok) return null
 
   const html = await res.text()

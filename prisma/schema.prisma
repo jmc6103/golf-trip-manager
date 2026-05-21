@@ -32,6 +32,7 @@ enum ScoreMax {
   DOUBLE_BOGEY
   TRIPLE_BOGEY
   NET_DOUBLE_BOGEY
+  DOUBLE_PAR
 }
 
 enum TeamMethod {
